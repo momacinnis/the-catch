@@ -132,19 +132,117 @@
 <script>
 const MS_DAY = 86400000;
 const STORAGE_KEY = "the-catch-state";
+const SCHEMA_VERSION = 2;
+const STAGES = ["discovered", "considering", "preparing", "submitted", "outcome", "learn"];
 
-let state = { catchItems: [], kept: [] };
+let state = { schemaVersion: SCHEMA_VERSION, opportunities: [] };
 let view = "catch";
+let bannerMessages = [];
+// When true, on-disk data exists that this version couldn't read or recognize.
+// save() becomes a no-op while this is set, so nothing ever silently overwrites
+// data we told the artist "nothing was changed" about. Only an explicit
+// Clear all data clears this — see clearAll().
+let dataLoadBlocked = false;
 
 // ---------- storage ----------
 function load() {
+  let raw;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) state = JSON.parse(raw);
-  } catch (e) { console.error("Load failed", e); }
+    raw = localStorage.getItem(STORAGE_KEY);
+  } catch (e) {
+    console.error("Load failed", e);
+    showBanner("Saved data couldn't be read from this browser. Nothing was changed.", true);
+    dataLoadBlocked = true;
+    return;
+  }
+  if (!raw) return;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    console.error("Stored data is corrupted JSON", e);
+    showBanner("Saved data on this device could not be read (it isn't valid JSON). Nothing was changed — if you have a backup file, use Restore progress.", true);
+    dataLoadBlocked = true;
+    return;
+  }
+
+  if (parsed && parsed.schemaVersion === SCHEMA_VERSION && Array.isArray(parsed.opportunities)) {
+    state = parsed;
+    return;
+  }
+
+  const migrated = migrateLegacyState(parsed, raw);
+  if (migrated) {
+    state = migrated;
+  } else {
+    dataLoadBlocked = true;
+  }
 }
 function save() {
+  if (dataLoadBlocked) return;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { console.error("Save failed", e); }
+}
+
+function isLegacyShape(parsed) {
+  return !!(parsed && typeof parsed === "object" && (Array.isArray(parsed.catchItems) || Array.isArray(parsed.kept)));
+}
+
+function migrateLegacyState(parsed, rawBackupText) {
+  if (!isLegacyShape(parsed)) {
+    showBanner("Your saved data is in a format this version doesn't recognize, so nothing was changed. If you have a backup file, use Restore progress.", true);
+    return null;
+  }
+
+  const catchItems = Array.isArray(parsed.catchItems) ? parsed.catchItems : [];
+  const kept = Array.isArray(parsed.kept) ? parsed.kept : [];
+
+  const isValidLegacyItem = (o) => o && typeof o === "object" && typeof o.title === "string" && o.title.trim() && typeof o.deadline === "string" && o.deadline.trim();
+
+  // Spread the original item first so every field the artist's data carries
+  // survives migration untouched — including ones this version doesn't
+  // explicitly know about (custom fields from a "cast the net" prompt, etc.)
+  // — then normalize only what migration itself needs to guarantee.
+  const toOpportunity = (o, stage) => ({
+    ...o,
+    id: (o.id != null ? String(o.id) : "") || (Date.now() + "-" + Math.random().toString(36).slice(2, 8)),
+    notes: typeof o.notes === "string" ? o.notes : "",
+    details: o.details && typeof o.details === "object" ? o.details : null,
+    stage,
+  });
+
+  const validCatch = catchItems.filter(isValidLegacyItem);
+  const validKept = kept.filter(isValidLegacyItem);
+  const skippedCount = (catchItems.length - validCatch.length) + (kept.length - validKept.length);
+
+  const opportunities = [
+    ...validCatch.map((o) => toOpportunity(o, "discovered")),
+    ...validKept.map((o) => toOpportunity(o, "considering")),
+  ].sort((a, b) => a.deadline.localeCompare(b.deadline));
+
+  if (!opportunities.every((o) => STAGES.includes(o.stage) && o.id && o.title && o.deadline)) {
+    showBanner("Upgrading your saved data produced an unexpected result, so nothing was changed. Please get in touch so this can be looked at.", true);
+    return null;
+  }
+
+  // Two independent backups: a downloadable file, and a same-origin localStorage
+  // copy. The file download can silently fail (browser popup/download blockers),
+  // so the localStorage copy is the guaranteed fallback.
+  try { localStorage.setItem(STORAGE_KEY + "-pre-migration-backup", rawBackupText); } catch (e) { /* best effort */ }
+  try { downloadJson(`the-catch-backup-pre-migration-${new Date().toISOString().slice(0, 10)}.json`, parsed); } catch (e) { /* best effort */ }
+
+  const migrated = { schemaVersion: SCHEMA_VERSION, opportunities };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+  } catch (e) {
+    console.error("Migration write failed", e);
+    showBanner("Couldn't save the upgraded data to this device, so nothing was changed.", true);
+    return null;
+  }
+
+  const skippedNote = skippedCount ? ` ${skippedCount} item${skippedCount === 1 ? "" : "s"} couldn't be upgraded (missing a title or deadline) and were left out — they're still in your backup.` : "";
+  showBanner(`Upgraded ${opportunities.length} saved opportunit${opportunities.length === 1 ? "y" : "ies"} to the new format. A backup of your previous data was saved automatically.${skippedNote}`, false);
+  return migrated;
 }
 
 // ---------- helpers ----------
@@ -190,12 +288,17 @@ function normalizeItems(parsed) {
   if (!Array.isArray(arr)) throw new Error("No opportunity list found in that file");
   return arr.filter((o) => o && o.title && o.deadline).map((o, i) => ({ ...o, id: o.id || (Date.now() + "-" + i) }));
 }
+function isActive(o) { return o.stage !== "discovered"; }
+function sortOpportunities() { state.opportunities.sort((a, b) => a.deadline.localeCompare(b.deadline)); }
+function existingKeySet() { return new Set(state.opportunities.map((x) => x.title + x.venue)); }
 
 // ---------- import via link (?import=base64url-json) ----------
 function showBanner(msg, isError) {
+  bannerMessages.push({ msg, isError });
   const el = document.getElementById("linkBanner");
-  el.textContent = msg;
-  el.style.color = isError ? "var(--sanguine)" : "var(--ink)";
+  el.innerHTML = bannerMessages
+    .map((b, i) => `<div style="color:${b.isError ? "var(--sanguine)" : "var(--ink)"};${i > 0 ? " margin-top:6px;" : ""}">${escapeHtml(b.msg)}</div>`)
+    .join("");
   el.style.display = "block";
 }
 function b64urlDecode(str) {
@@ -212,10 +315,10 @@ function importFromBase64(data, isPasted) {
   try {
     const parsed = JSON.parse(b64urlDecode(data));
     const items = normalizeItems(parsed).filter((o) => daysUntil(o.deadline) > 0);
-    const keptIds = new Set(state.kept.map((k) => k.title + k.venue));
-    const existing = new Set(state.catchItems.map((x) => x.title + x.venue));
-    const merged = items.filter((o) => !keptIds.has(o.title + o.venue) && !existing.has(o.title + o.venue));
-    state.catchItems = [...state.catchItems, ...merged].sort((a, b) => a.deadline.localeCompare(b.deadline));
+    const existing = existingKeySet();
+    const merged = items.filter((o) => !existing.has(o.title + o.venue)).map((o) => ({ ...o, stage: "discovered" }));
+    state.opportunities = [...state.opportunities, ...merged];
+    sortOpportunities();
     save();
     showBanner(`Imported ${merged.length} new opportunit${merged.length === 1 ? "y" : "ies"}${isPasted ? "" : " from the link"}.` + (merged.length < items.length ? ` (${items.length - merged.length} already had.)` : ""), false);
     renderAll();
@@ -235,8 +338,7 @@ function importFromPastedLink(raw) {
 
 // ---------- timeline ----------
 function renderTimeline() {
-  const all0 = [...state.kept, ...state.catchItems];
-  const furthest = all0.reduce((max, o) => Math.max(max, daysUntil(o.deadline)), 0);
+  const furthest = state.opportunities.reduce((max, o) => Math.max(max, daysUntil(o.deadline)), 0);
   const span = Math.min(730, Math.max(183, furthest + 10));
   const monthCount = Math.round(span / 30.5);
   const step = monthCount > 12 ? 2 : 1;
@@ -253,10 +355,9 @@ function renderTimeline() {
     }
   }
 
-  const all = [
-    ...state.kept.map((o) => ({ ...o, kept: true })),
-    ...state.catchItems.map((o) => ({ ...o, kept: false })),
-  ].filter((o) => daysUntil(o.deadline) <= span);
+  const all = state.opportunities
+    .map((o) => ({ ...o, kept: isActive(o) }))
+    .filter((o) => daysUntil(o.deadline) <= span);
 
   let dotsHtml = "";
   all.forEach((o) => {
@@ -344,17 +445,20 @@ function cardHtml(o, kind) {
 
 function renderList() {
   const list = document.getElementById("list");
-  document.getElementById("tabCatch").textContent = `Fresh catch (${state.catchItems.length})`;
-  document.getElementById("tabWorking").textContent = `Working on (${state.kept.length})`;
-  document.getElementById("progressRow").style.display = state.kept.length ? "flex" : "none";
+  const discovered = state.opportunities.filter((o) => o.stage === "discovered");
+  const active = state.opportunities.filter(isActive);
+
+  document.getElementById("tabCatch").textContent = `Fresh catch (${discovered.length})`;
+  document.getElementById("tabWorking").textContent = `Working on (${active.length})`;
+  document.getElementById("progressRow").style.display = active.length ? "flex" : "none";
 
   if (view === "catch") {
-    list.innerHTML = state.catchItems.length
-      ? state.catchItems.map((o) => cardHtml(o, "catch")).join("")
+    list.innerHTML = discovered.length
+      ? discovered.map((o) => cardHtml(o, "catch")).join("")
       : `<p class="empty">No catch yet. Ask Claude to "cast the net" in a chat, then import the .json here.</p>`;
   } else {
-    list.innerHTML = state.kept.length
-      ? state.kept.map((o) => cardHtml(o, "working")).join("")
+    list.innerHTML = active.length
+      ? active.map((o) => cardHtml(o, "working")).join("")
       : `<p class="empty">Nothing committed yet — keep something from the catch, or restore a saved progress file.</p>`;
   }
 }
@@ -363,15 +467,13 @@ function renderAll() { renderTimeline(); renderList(); save(); }
 
 // ---------- actions ----------
 function keep(id) {
-  const idx = state.catchItems.findIndex((x) => x.id === id);
-  if (idx === -1) return;
-  const [o] = state.catchItems.splice(idx, 1);
-  state.kept.push(o);
-  state.kept.sort((a, b) => a.deadline.localeCompare(b.deadline));
+  const item = state.opportunities.find((x) => x.id === id);
+  if (!item || item.stage !== "discovered") return;
+  item.stage = "considering";
   renderAll();
 }
 function toss(id) {
-  state.catchItems = state.catchItems.filter((x) => x.id !== id);
+  state.opportunities = state.opportunities.filter((x) => x.id !== id);
   renderAll();
 }
 function toggleDetailsForm(id) {
@@ -384,12 +486,12 @@ function saveDetails(id) {
   const eligibility = form.querySelector('[data-field="eligibility"]').value;
   const apply = form.querySelector('[data-field="apply"]').value;
   const requirements = reqRaw.split(",").map((s) => s.trim()).filter(Boolean);
-  const item = state.kept.find((x) => x.id === id);
+  const item = state.opportunities.find((x) => x.id === id);
   if (item) item.details = { requirements, eligibility, apply };
   renderAll();
 }
 function saveNotes(id, value) {
-  const item = state.kept.find((x) => x.id === id);
+  const item = state.opportunities.find((x) => x.id === id);
   if (item) item.notes = value;
   save();
 }
@@ -399,10 +501,10 @@ async function importCatch(file) {
   try {
     const parsed = await readJsonFile(file);
     const items = normalizeItems(parsed).filter((o) => daysUntil(o.deadline) > 0);
-    const keptIds = new Set(state.kept.map((k) => k.title + k.venue));
-    const existing = new Set(state.catchItems.map((x) => x.title + x.venue));
-    const merged = items.filter((o) => !keptIds.has(o.title + o.venue) && !existing.has(o.title + o.venue));
-    state.catchItems = [...state.catchItems, ...merged].sort((a, b) => a.deadline.localeCompare(b.deadline));
+    const existing = existingKeySet();
+    const merged = items.filter((o) => !existing.has(o.title + o.venue)).map((o) => ({ ...o, stage: "discovered" }));
+    state.opportunities = [...state.opportunities, ...merged];
+    sortOpportunities();
     renderAll();
   } catch (e) {
     showError(`Couldn't import that file. (${e.message})`);
@@ -413,19 +515,25 @@ async function restoreProgress(file) {
   try {
     const parsed = await readJsonFile(file);
     const items = normalizeItems(parsed);
-    const existing = new Set(state.kept.map((x) => x.title + x.venue));
-    state.kept = [...state.kept, ...items.filter((o) => !existing.has(o.title + o.venue))].sort((a, b) => a.deadline.localeCompare(b.deadline));
+    const existing = existingKeySet();
+    const merged = items
+      .filter((o) => !existing.has(o.title + o.venue))
+      .map((o) => ({ ...o, stage: STAGES.includes(o.stage) ? o.stage : "considering" }));
+    state.opportunities = [...state.opportunities, ...merged];
+    sortOpportunities();
     renderAll();
   } catch (e) {
     showError(`Couldn't restore that file. (${e.message})`);
   }
 }
 function exportProgress() {
-  downloadJson(`the-catch-working-${new Date().toISOString().slice(0, 10)}.json`, { savedAt: new Date().toISOString(), kept: state.kept });
+  const active = state.opportunities.filter(isActive);
+  downloadJson(`the-catch-working-${new Date().toISOString().slice(0, 10)}.json`, { savedAt: new Date().toISOString(), kept: active });
 }
 function clearAll() {
   if (!confirm("Clear all saved data — catch and working list?")) return;
-  state = { catchItems: [], kept: [] };
+  dataLoadBlocked = false;
+  state = { schemaVersion: SCHEMA_VERSION, opportunities: [] };
   renderAll();
 }
 
