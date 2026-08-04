@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>The Catch</title>
+<link rel="apple-touch-icon" href="icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="The Catch" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #E7E3DA; --paperDeep: #DDD8CC; --ink: #26221E; --faded: #6E675C;
+    --sanguine: #8C3222; --amber: #A8721F; --green: #4A6B3E; --line: #B9B2A3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: 'Source Serif 4', Georgia, serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .wrap { max-width: 700px; margin: 0 auto; padding: 28px 20px 60px; }
+  h1 { font-family: 'Fraunces', serif; font-weight: 700; font-size: 30px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+  .label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faded); }
+
+  /* Timeline */
+  #timeline { margin: 8px 0 4px; }
+  #timelineTrack { position: relative; height: 74px; }
+  #timelineTrack svg { position: absolute; top: 34px; left: 0; opacity: 0.75; }
+  .month-label { position: absolute; top: 52px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faded); transform: translateX(-50%); }
+  .dot { position: absolute; top: 30px; width: 15px; height: 15px; border-radius: 50%; transform: translateX(-50%) rotate(-4deg); border-width: 2.2px; border-style: solid; }
+  .dot.working { box-shadow: 0 0 0 3px var(--paper); }
+  .timeline-empty { position: absolute; top: 6px; width: 100%; text-align: center; color: var(--faded); font-size: 13px; font-style: italic; }
+  .legend { display: flex; gap: 18px; font-size: 11px; color: var(--faded); font-family: 'IBM Plex Mono', monospace; flex-wrap: wrap; }
+  .legend .dotkey { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+
+  /* Controls */
+  .panel { background: var(--paperDeep); border-radius: 3px; padding: 14px 16px; margin: 18px 0 10px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button.btn {
+    font-family: 'IBM Plex Mono', monospace; font-size: 13px; letter-spacing: 0.04em;
+    padding: 8px 16px; cursor: pointer; background: transparent; color: var(--ink);
+    border: 1.5px solid var(--ink); border-radius: 2px;
+  }
+  button.btn.primary { background: var(--sanguine); color: var(--paper); border-color: var(--sanguine); }
+  button.btn:disabled { opacity: 0.5; cursor: default; }
+  input[type=file] { display: none; }
+  .hint { margin-top: 10px; font-size: 12px; color: var(--faded); line-height: 1.5; }
+  .errorMsg { margin-top: 10px; font-size: 13px; color: var(--sanguine); }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 22px; margin: 18px 0 4px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
+  .tab { background: none; border: none; padding: 4px 0; cursor: pointer; color: var(--faded); border-bottom: 2px solid transparent; font-family: inherit; font-size: inherit; letter-spacing: 0.05em; }
+  .tab.active { color: var(--ink); border-bottom-color: var(--sanguine); }
+
+  /* Cards */
+  .card { border-top: 1px solid var(--line); padding: 16px 0; display: flex; flex-direction: column; gap: 6px; }
+  .card-top { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+  .card-title { font-family: 'Fraunces', serif; font-size: 18px; font-weight: 600; line-height: 1.25; }
+  .card-title a { color: var(--ink); text-decoration-color: var(--sanguine); text-decoration-thickness: 1.5px; }
+  .card-meta { font-size: 13px; color: var(--faded); font-family: 'IBM Plex Mono', monospace; }
+  .card-why { font-size: 14.5px; line-height: 1.5; }
+  .card-link { font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--sanguine); text-decoration: none; }
+  .details-box { background: var(--paperDeep); border-radius: 3px; padding: 10px 14px; margin-top: 4px; font-size: 14px; }
+  .details-box ul { margin: 0 0 8px; padding-left: 18px; line-height: 1.6; }
+  .details-box .sub { color: var(--faded); font-size: 13.5px; }
+  .details-box .verify { font-size: 12px; color: var(--faded); font-style: italic; margin-top: 6px; }
+  .notes-field { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 8px; font-family: 'Source Serif 4', serif; font-size: 14px; background: var(--paper); border: 1px solid var(--line); border-radius: 2px; color: var(--ink); resize: vertical; }
+  .card-actions { display: flex; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
+  .empty { color: var(--faded); font-style: italic; font-size: 14px; margin-top: 20px; }
+
+  .details-form { display: none; margin-top: 8px; }
+  .details-form.open { display: block; }
+  .details-form input, .details-form textarea {
+    width: 100%; box-sizing: border-box; margin-top: 4px; margin-bottom: 8px; padding: 8px;
+    font-family: 'Source Serif 4', serif; font-size: 14px; background: var(--paper);
+    border: 1px solid var(--line); border-radius: 2px; color: var(--ink);
+  }
+
+  a { color: inherit; }
+  ::selection { background: var(--amber); color: var(--paper); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>The Catch</h1>
+  <div class="label" style="margin-bottom:6px;">local tracker — casting happens in a Claude chat</div>
+
+  <div id="timeline">
+    <div id="timelineTrack"></div>
+    <div class="legend">
+      <span><span class="dotkey" style="background:var(--sanguine)"></span>under 14d</span>
+      <span><span class="dotkey" style="background:var(--amber)"></span>14–30d</span>
+      <span><span class="dotkey" style="background:var(--green)"></span>30d+</span>
+      <span style="margin-left:auto;">● working on · ○ fresh catch</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <button class="btn primary" id="importBtn">Import catch (.json)</button>
+      <input type="file" id="importInput" accept="application/json,.json" />
+      <button class="btn" id="clearBtn">Clear all data</button>
+    </div>
+    <div id="errorMsg" class="errorMsg" style="display:none;"></div>
+    <div class="hint">Ask Claude to "cast the net" in a chat — it hands you back a .json file. Import it here. Everything below saves automatically to this device.</div>
+  </div>
+
+  <div class="row" id="progressRow" style="display:none; margin: 10px 0 4px;">
+    <button class="btn" id="exportBtn">Save progress (.json)</button>
+    <button class="btn" id="restoreBtn">Restore progress</button>
+    <input type="file" id="restoreInput" accept="application/json,.json" />
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" id="tabCatch" data-view="catch">Fresh catch (0)</button>
+    <button class="tab" id="tabWorking" data-view="working">Working on (0)</button>
+  </div>
+
+  <div id="list"></div>
+</div>
+
+<script>
+const MS_DAY = 86400000;
+const STORAGE_KEY = "the-catch-state";
+
+let state = { catchItems: [], kept: [] };
+let view = "catch";
+
+// ---------- storage ----------
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) state = JSON.parse(raw);
+  } catch (e) { console.error("Load failed", e); }
+}
+function save() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { console.error("Save failed", e); }
+}
+
+// ---------- helpers ----------
+function daysUntil(dateStr) {
+  const d = new Date(dateStr + "T12:00:00");
+  return Math.round((d - Date.now()) / MS_DAY);
+}
+function urgencyColor(days) {
+  if (days < 14) return "var(--sanguine)";
+  if (days < 30) return "var(--amber)";
+  return "var(--green)";
+}
+function fmtDate(dateStr) {
+  const d = new Date(dateStr + "T12:00:00");
+  return d.toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+}
+function showError(msg) {
+  const el = document.getElementById("errorMsg");
+  el.textContent = msg;
+  el.style.display = msg ? "block" : "none";
+}
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function downloadJson(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function readJsonFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => { try { resolve(JSON.parse(reader.result)); } catch { reject(new Error("That file isn't valid JSON")); } };
+    reader.onerror = () => reject(new Error("Couldn't read the file"));
+    reader.readAsText(file);
+  });
+}
+function normalizeItems(parsed) {
+  let arr = Array.isArray(parsed) ? parsed : (parsed && (parsed.items || parsed.catch || parsed.kept)) || null;
+  if (!Array.isArray(arr)) throw new Error("No opportunity list found in that file");
+  return arr.filter((o) => o && o.title && o.deadline).map((o, i) => ({ ...o, id: o.id || (Date.now() + "-" + i) }));
+}
+
+// ---------- timeline ----------
+function renderTimeline() {
+  const all0 = [...state.kept, ...state.catchItems];
+  const furthest = all0.reduce((max, o) => Math.max(max, daysUntil(o.deadline)), 0);
+  const span = Math.min(730, Math.max(183, furthest + 10));
+  const monthCount = Math.round(span / 30.5);
+  const step = monthCount > 12 ? 2 : 1;
+  const now = new Date();
+
+  let monthsHtml = "";
+  for (let m = 0; m <= monthCount; m += step) {
+    const d = new Date(now.getFullYear(), now.getMonth() + m, 1);
+    const days = Math.round((d - now) / MS_DAY);
+    if (days >= 0 && days <= span) {
+      const label = d.toLocaleDateString("en-CA", { month: "short", year: m >= 12 ? "2-digit" : undefined });
+      const x = (days / span) * 100;
+      monthsHtml += `<div class="month-label" style="left:${x}%">${label}</div>`;
+    }
+  }
+
+  const all = [
+    ...state.kept.map((o) => ({ ...o, kept: true })),
+    ...state.catchItems.map((o) => ({ ...o, kept: false })),
+  ].filter((o) => daysUntil(o.deadline) <= span);
+
+  let dotsHtml = "";
+  all.forEach((o) => {
+    const days = daysUntil(o.deadline);
+    const x = Math.min(100, Math.max(0, (days / span) * 100));
+    const c = urgencyColor(days);
+    const bg = o.kept ? c : "transparent";
+    dotsHtml += `<div class="dot ${o.kept ? "working" : ""}" title="${escapeHtml(o.title)} — ${fmtDate(o.deadline)} (${days}d)" style="left:${x}%; background:${bg}; border-color:${c};"></div>`;
+  });
+
+  const emptyHtml = all.length === 0 ? `<div class="timeline-empty">The line is empty. Import a catch below.</div>` : "";
+
+  document.getElementById("timelineTrack").innerHTML = `
+    <svg width="100%" height="10"><path d="M0 5 Q 25 3, 50 5 T 100 5" stroke="var(--ink)" stroke-width="1.6" fill="none" vector-effect="non-scaling-stroke" transform="scale(10,1)"/></svg>
+    ${monthsHtml}${dotsHtml}${emptyHtml}
+  `;
+}
+
+// ---------- cards ----------
+function cardHtml(o, kind) {
+  const days = daysUntil(o.deadline);
+  const c = urgencyColor(days);
+  const linkOpen = o.url ? `<a href="${escapeHtml(o.url)}" target="_blank" rel="noreferrer">` : "";
+  const linkClose = o.url ? `</a>` : "";
+  const viewLink = o.url ? `<a class="card-link" href="${escapeHtml(o.url)}" target="_blank" rel="noreferrer">View the call ↗</a>` : "";
+
+  let detailsHtml = "";
+  if (o.details) {
+    const reqs = (o.details.requirements || []).map((r) => `<li>${escapeHtml(r)}</li>`).join("");
+    detailsHtml = `
+      <div class="details-box">
+        <div class="label" style="margin-bottom:6px;">To submit</div>
+        <ul>${reqs}</ul>
+        ${o.details.eligibility ? `<div class="sub">Eligibility: ${escapeHtml(o.details.eligibility)}</div>` : ""}
+        ${o.details.apply ? `<div class="sub">Apply: ${escapeHtml(o.details.apply)}</div>` : ""}
+        <div class="verify">Verify against the call page before submitting.</div>
+      </div>`;
+  }
+
+  let notesHtml = "";
+  let actionsHtml = "";
+  let addDetailsForm = "";
+
+  if (kind === "catch") {
+    actionsHtml = `
+      <div class="card-actions">
+        <button class="btn primary" data-action="keep" data-id="${o.id}">Work on it</button>
+        <button class="btn" data-action="toss" data-id="${o.id}">Throw back</button>
+      </div>`;
+  } else {
+    notesHtml = `<textarea class="notes-field" rows="2" placeholder="Notes…" data-action="notes" data-id="${o.id}">${escapeHtml(o.notes || "")}</textarea>`;
+    actionsHtml = `
+      <div class="card-actions">
+        ${!o.details ? `<button class="btn" data-action="toggleDetails" data-id="${o.id}">Add details</button>` : ""}
+      </div>`;
+    if (!o.details) {
+      addDetailsForm = `
+        <div class="details-form" id="detailsForm-${o.id}">
+          <input placeholder="Requirements, comma-separated (e.g. 5 images, artist statement, CV)" data-field="requirements" />
+          <input placeholder="Eligibility" data-field="eligibility" />
+          <input placeholder="How to apply" data-field="apply" />
+          <div class="row">
+            <button class="btn primary" data-action="saveDetails" data-id="${o.id}">Save</button>
+            <button class="btn" data-action="toggleDetails" data-id="${o.id}">Cancel</button>
+          </div>
+        </div>`;
+    }
+  }
+
+  return `
+    <div class="card">
+      <div class="card-top">
+        <div class="card-title">${linkOpen}${escapeHtml(o.title)}${linkClose}</div>
+        <div class="mono" style="font-size:13px; color:${c}; white-space:nowrap;">${fmtDate(o.deadline)} · ${days}d</div>
+      </div>
+      <div class="card-meta">${escapeHtml(o.venue || "")} · ${escapeHtml(o.kind || "")} · fee ${escapeHtml(o.fee || "—")} · fit ${escapeHtml(o.fit ?? "—")}/10</div>
+      <div class="card-why">${escapeHtml(o.why || "")}</div>
+      ${viewLink}
+      ${detailsHtml}
+      ${notesHtml}
+      ${actionsHtml}
+      ${addDetailsForm}
+    </div>`;
+}
+
+function renderList() {
+  const list = document.getElementById("list");
+  document.getElementById("tabCatch").textContent = `Fresh catch (${state.catchItems.length})`;
+  document.getElementById("tabWorking").textContent = `Working on (${state.kept.length})`;
+  document.getElementById("progressRow").style.display = state.kept.length ? "flex" : "none";
+
+  if (view === "catch") {
+    list.innerHTML = state.catchItems.length
+      ? state.catchItems.map((o) => cardHtml(o, "catch")).join("")
+      : `<p class="empty">No catch yet. Ask Claude to "cast the net" in a chat, then import the .json here.</p>`;
+  } else {
+    list.innerHTML = state.kept.length
+      ? state.kept.map((o) => cardHtml(o, "working")).join("")
+      : `<p class="empty">Nothing committed yet — keep something from the catch, or restore a saved progress file.</p>`;
+  }
+}
+
+function renderAll() { renderTimeline(); renderList(); save(); }
+
+// ---------- actions ----------
+function keep(id) {
+  const idx = state.catchItems.findIndex((x) => x.id === id);
+  if (idx === -1) return;
+  const [o] = state.catchItems.splice(idx, 1);
+  state.kept.push(o);
+  state.kept.sort((a, b) => a.deadline.localeCompare(b.deadline));
+  renderAll();
+}
+function toss(id) {
+  state.catchItems = state.catchItems.filter((x) => x.id !== id);
+  renderAll();
+}
+function toggleDetailsForm(id) {
+  const el = document.getElementById(`detailsForm-${id}`);
+  if (el) el.classList.toggle("open");
+}
+function saveDetails(id) {
+  const form = document.getElementById(`detailsForm-${id}`);
+  const reqRaw = form.querySelector('[data-field="requirements"]').value;
+  const eligibility = form.querySelector('[data-field="eligibility"]').value;
+  const apply = form.querySelector('[data-field="apply"]').value;
+  const requirements = reqRaw.split(",").map((s) => s.trim()).filter(Boolean);
+  const item = state.kept.find((x) => x.id === id);
+  if (item) item.details = { requirements, eligibility, apply };
+  renderAll();
+}
+function saveNotes(id, value) {
+  const item = state.kept.find((x) => x.id === id);
+  if (item) item.notes = value;
+  save();
+}
+
+async function importCatch(file) {
+  showError("");
+  try {
+    const parsed = await readJsonFile(file);
+    const items = normalizeItems(parsed).filter((o) => daysUntil(o.deadline) > 0);
+    const keptIds = new Set(state.kept.map((k) => k.title + k.venue));
+    const existing = new Set(state.catchItems.map((x) => x.title + x.venue));
+    const merged = items.filter((o) => !keptIds.has(o.title + o.venue) && !existing.has(o.title + o.venue));
+    state.catchItems = [...state.catchItems, ...merged].sort((a, b) => a.deadline.localeCompare(b.deadline));
+    renderAll();
+  } catch (e) {
+    showError(`Couldn't import that file. (${e.message})`);
+  }
+}
+async function restoreProgress(file) {
+  showError("");
+  try {
+    const parsed = await readJsonFile(file);
+    const items = normalizeItems(parsed);
+    const existing = new Set(state.kept.map((x) => x.title + x.venue));
+    state.kept = [...state.kept, ...items.filter((o) => !existing.has(o.title + o.venue))].sort((a, b) => a.deadline.localeCompare(b.deadline));
+    renderAll();
+  } catch (e) {
+    showError(`Couldn't restore that file. (${e.message})`);
+  }
+}
+function exportProgress() {
+  downloadJson(`the-catch-working-${new Date().toISOString().slice(0, 10)}.json`, { savedAt: new Date().toISOString(), kept: state.kept });
+}
+function clearAll() {
+  if (!confirm("Clear all saved data — catch and working list?")) return;
+  state = { catchItems: [], kept: [] };
+  renderAll();
+}
+
+// ---------- events ----------
+document.getElementById("importBtn").onclick = () => document.getElementById("importInput").click();
+document.getElementById("importInput").onchange = (e) => { const f = e.target.files[0]; if (f) importCatch(f); e.target.value = ""; };
+document.getElementById("restoreBtn").onclick = () => document.getElementById("restoreInput").click();
+document.getElementById("restoreInput").onchange = (e) => { const f = e.target.files[0]; if (f) restoreProgress(f); e.target.value = ""; };
+document.getElementById("exportBtn").onclick = exportProgress;
+document.getElementById("clearBtn").onclick = clearAll;
+
+document.getElementById("tabCatch").onclick = () => { view = "catch"; document.getElementById("tabCatch").classList.add("active"); document.getElementById("tabWorking").classList.remove("active"); renderList(); };
+document.getElementById("tabWorking").onclick = () => { view = "working"; document.getElementById("tabWorking").classList.add("active"); document.getElementById("tabCatch").classList.remove("active"); renderList(); };
+
+document.getElementById("list").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-action]");
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const action = btn.dataset.action;
+  if (action === "keep") keep(id);
+  else if (action === "toss") toss(id);
+  else if (action === "toggleDetails") toggleDetailsForm(id);
+  else if (action === "saveDetails") saveDetails(id);
+});
+document.getElementById("list").addEventListener("blur", (e) => {
+  if (e.target.dataset && e.target.dataset.action === "notes") saveNotes(e.target.dataset.id, e.target.value);
+}, true);
+
+// ---------- init ----------
+load();
+renderAll();
+</script>
+</body>
+</html>
