@@ -88,6 +88,7 @@
 <div class="wrap">
   <h1>The Catch</h1>
   <div class="label" style="margin-bottom:6px;">local tracker — casting happens in a Claude chat</div>
+  <div id="linkBanner" class="panel" style="display:none; margin-top:0;"></div>
 
   <div id="timeline">
     <div id="timelineTrack"></div>
@@ -183,6 +184,36 @@ function normalizeItems(parsed) {
   let arr = Array.isArray(parsed) ? parsed : (parsed && (parsed.items || parsed.catch || parsed.kept)) || null;
   if (!Array.isArray(arr)) throw new Error("No opportunity list found in that file");
   return arr.filter((o) => o && o.title && o.deadline).map((o, i) => ({ ...o, id: o.id || (Date.now() + "-" + i) }));
+}
+
+// ---------- import via link (?import=base64url-json) ----------
+function showBanner(msg, isError) {
+  const el = document.getElementById("linkBanner");
+  el.textContent = msg;
+  el.style.color = isError ? "var(--sanguine)" : "var(--ink)";
+  el.style.display = "block";
+}
+function b64urlDecode(str) {
+  const b64 = str.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((str.length + 3) % 4);
+  return decodeURIComponent(escape(atob(b64)));
+}
+function tryImportFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const data = params.get("import");
+  if (!data) return;
+  try {
+    const parsed = JSON.parse(b64urlDecode(data));
+    const items = normalizeItems(parsed).filter((o) => daysUntil(o.deadline) > 0);
+    const keptIds = new Set(state.kept.map((k) => k.title + k.venue));
+    const existing = new Set(state.catchItems.map((x) => x.title + x.venue));
+    const merged = items.filter((o) => !keptIds.has(o.title + o.venue) && !existing.has(o.title + o.venue));
+    state.catchItems = [...state.catchItems, ...merged].sort((a, b) => a.deadline.localeCompare(b.deadline));
+    save();
+    showBanner(`Imported ${merged.length} new opportunit${merged.length === 1 ? "y" : "ies"} from the link.` + (merged.length < items.length ? ` (${items.length - merged.length} already had.)` : ""), false);
+  } catch (e) {
+    showBanner(`Couldn't read the link data. (${e.message})`, true);
+  }
+  window.history.replaceState({}, "", window.location.pathname);
 }
 
 // ---------- timeline ----------
@@ -408,6 +439,7 @@ document.getElementById("list").addEventListener("blur", (e) => {
 
 // ---------- init ----------
 load();
+tryImportFromUrl();
 renderAll();
 </script>
 </body>
