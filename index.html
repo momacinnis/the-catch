@@ -108,6 +108,11 @@
     </div>
     <div id="errorMsg" class="errorMsg" style="display:none;"></div>
     <div class="hint">Ask Claude to "cast the net" in a chat — it hands you back a .json file. Import it here. Everything below saves automatically to this device.</div>
+    <div class="row" style="margin-top:12px;">
+      <input type="text" id="pasteLinkInput" placeholder="Paste import link here" style="flex:1; min-width:180px; padding:8px; font-family:'IBM Plex Mono',monospace; font-size:12px; background:var(--paper); border:1px solid var(--line); border-radius:2px; color:var(--ink);" />
+      <button class="btn primary" id="pasteImportBtn">Import</button>
+    </div>
+    <div class="hint">Prefer a link over a file? Paste it above — this runs right in this open app, so it always lands in the data you're looking at.</div>
   </div>
 
   <div class="row" id="progressRow" style="display:none; margin: 10px 0 4px;">
@@ -201,6 +206,9 @@ function tryImportFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const data = params.get("import");
   if (!data) return;
+  importFromBase64(data, false);
+}
+function importFromBase64(data, isPasted) {
   try {
     const parsed = JSON.parse(b64urlDecode(data));
     const items = normalizeItems(parsed).filter((o) => daysUntil(o.deadline) > 0);
@@ -209,11 +217,20 @@ function tryImportFromUrl() {
     const merged = items.filter((o) => !keptIds.has(o.title + o.venue) && !existing.has(o.title + o.venue));
     state.catchItems = [...state.catchItems, ...merged].sort((a, b) => a.deadline.localeCompare(b.deadline));
     save();
-    showBanner(`Imported ${merged.length} new opportunit${merged.length === 1 ? "y" : "ies"} from the link.` + (merged.length < items.length ? ` (${items.length - merged.length} already had.)` : ""), false);
+    showBanner(`Imported ${merged.length} new opportunit${merged.length === 1 ? "y" : "ies"}${isPasted ? "" : " from the link"}.` + (merged.length < items.length ? ` (${items.length - merged.length} already had.)` : ""), false);
+    renderAll();
   } catch (e) {
-    showBanner(`Couldn't read the link data. (${e.message})`, true);
+    showBanner(`Couldn't read that data. (${e.message})`, true);
   }
-  window.history.replaceState({}, "", window.location.pathname);
+  if (!isPasted) window.history.replaceState({}, "", window.location.pathname);
+}
+function importFromPastedLink(raw) {
+  const text = raw.trim();
+  if (!text) return;
+  let payload = text;
+  const qIndex = text.indexOf("import=");
+  if (qIndex !== -1) payload = text.slice(qIndex + "import=".length).split("&")[0];
+  importFromBase64(payload, true);
 }
 
 // ---------- timeline ----------
@@ -419,6 +436,14 @@ document.getElementById("restoreBtn").onclick = () => document.getElementById("r
 document.getElementById("restoreInput").onchange = (e) => { const f = e.target.files[0]; if (f) restoreProgress(f); e.target.value = ""; };
 document.getElementById("exportBtn").onclick = exportProgress;
 document.getElementById("clearBtn").onclick = clearAll;
+document.getElementById("pasteImportBtn").onclick = () => {
+  const input = document.getElementById("pasteLinkInput");
+  importFromPastedLink(input.value);
+  input.value = "";
+};
+document.getElementById("pasteLinkInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("pasteImportBtn").click();
+});
 
 document.getElementById("tabCatch").onclick = () => { view = "catch"; document.getElementById("tabCatch").classList.add("active"); document.getElementById("tabWorking").classList.remove("active"); renderList(); };
 document.getElementById("tabWorking").onclick = () => { view = "working"; document.getElementById("tabWorking").classList.add("active"); document.getElementById("tabCatch").classList.remove("active"); renderList(); };
