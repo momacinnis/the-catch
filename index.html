@@ -138,7 +138,11 @@
 
   <div id="castNetPanel" class="panel" style="display:none;">
     <div class="label" style="margin-bottom:6px;">Cast the net</div>
-    <input type="text" id="castNetIntentInput" placeholder="Optional — what are you looking for? (e.g. portrait competitions before October)" style="width:100%; box-sizing:border-box; padding:9px 10px; font-family:'Source Serif 4',serif; font-size:14px; background:var(--paper); border:1px solid var(--line); border-radius:8px; color:var(--ink); margin-bottom:8px;" />
+    <div class="label" style="margin-top:4px; margin-bottom:6px; text-transform:none; letter-spacing:0; font-size:13px;">Search context — who you are, what you make, what you're looking for. Saved on this device, included every time.</div>
+    <textarea id="castNetContextArea" placeholder="e.g. Figurative painter based in Stratford, Ontario. Practice centers on portraiture, life drawing, and a mythology-themed series (Women of the Ages). Works in colored pencil, conté, oil, acrylic, mixed media. Prefers physical exhibition over online-only." style="width:100%; box-sizing:border-box; padding:9px 10px; font-family:'Source Serif 4',serif; font-size:14px; background:var(--paper); border:1px solid var(--line); border-radius:8px; color:var(--ink); margin-bottom:10px; min-height:90px;"></textarea>
+    <div class="label" style="margin-top:4px; margin-bottom:6px; text-transform:none; letter-spacing:0; font-size:13px;">Sources to check — sites Claude should specifically search, beyond general knowledge.</div>
+    <textarea id="castNetSourcesArea" placeholder="e.g. akimbo.ca" style="width:100%; box-sizing:border-box; padding:9px 10px; font-family:'IBM Plex Mono',monospace; font-size:13px; background:var(--paper); border:1px solid var(--line); border-radius:8px; color:var(--ink); margin-bottom:10px; min-height:50px;"></textarea>
+    <input type="text" id="castNetIntentInput" placeholder="Optional — what are you looking for right now? (e.g. portrait competitions before October)" style="width:100%; box-sizing:border-box; padding:9px 10px; font-family:'Source Serif 4',serif; font-size:14px; background:var(--paper); border:1px solid var(--line); border-radius:8px; color:var(--ink); margin-bottom:8px;" />
     <div class="row" style="margin-bottom:8px;">
       <span class="label" style="text-transform:none; letter-spacing:0; font-size:13px;">Deadline within</span>
       <select id="castNetTimeRange" style="padding:8px 10px; font-family:'Inter',sans-serif; font-size:13.5px; background:var(--paper); border:1px solid var(--line); border-radius:8px; color:var(--ink);">
@@ -149,7 +153,7 @@
       </select>
     </div>
     <button class="btn primary" id="generatePromptBtn">Generate prompt</button>
-    <div class="hint" style="margin-top:8px;">This builds a prompt from your intent and time range. Paste it into a Claude or ChatGPT chat, then bring the results back with Import catch or the paste-link box above.</div>
+    <div class="hint" style="margin-top:8px;">This builds a prompt from your search context, intent, and time range. Paste it into a Claude or ChatGPT chat, then bring the results back with Import catch or the paste-link box above.</div>
     <textarea id="castNetPromptArea" style="display:none; min-height:240px;" readonly></textarea>
   </div>
 
@@ -174,6 +178,9 @@
 <script>
 const MS_DAY = 86400000;
 const STORAGE_KEY = "the-catch-state";
+const SEARCH_CONTEXT_KEY = "the-catch-search-context";
+const SOURCES_KEY = "the-catch-sources";
+const DEFAULT_SOURCES = "akimbo.ca";
 const SCHEMA_VERSION = 2;
 const STAGES = ["discovered", "considering", "preparing", "submitted", "outcome", "learn"];
 const RECOMMENDATION_VALUES = ["Strong alignment", "Possible alignment", "Low alignment", "Insufficient information"];
@@ -187,8 +194,25 @@ let bannerMessages = [];
 // data we told the artist "nothing was changed" about. Only an explicit
 // Clear all data clears this — see clearAll().
 let dataLoadBlocked = false;
+let searchContext = "";
+let searchSources = "";
 
 // ---------- storage ----------
+function loadSearchContext() {
+  try { searchContext = localStorage.getItem(SEARCH_CONTEXT_KEY) || ""; } catch (e) { console.error("Search context load failed", e); }
+}
+function saveSearchContext() {
+  try { localStorage.setItem(SEARCH_CONTEXT_KEY, searchContext); } catch (e) { console.error("Search context save failed", e); }
+}
+function loadSources() {
+  try {
+    const raw = localStorage.getItem(SOURCES_KEY);
+    searchSources = raw === null ? DEFAULT_SOURCES : raw;
+  } catch (e) { console.error("Sources load failed", e); searchSources = DEFAULT_SOURCES; }
+}
+function saveSources() {
+  try { localStorage.setItem(SOURCES_KEY, searchSources); } catch (e) { console.error("Sources save failed", e); }
+}
 function load() {
   let raw;
   try {
@@ -290,9 +314,19 @@ function migrateLegacyState(parsed, rawBackupText) {
 }
 
 // ---------- Cast the net (prompt assembly — manual invocation, no API calls) ----------
-function buildCastNetPrompt(intent, timeRangeDays) {
+function buildCastNetPrompt(context, sources, intent, timeRangeDays) {
   const lines = [];
   lines.push("You are helping an artist find and evaluate real, currently-open opportunities (exhibitions, open calls, competitions, residencies, grants).");
+  if (context) {
+    lines.push("");
+    lines.push("ARTIST CONTEXT");
+    lines.push(context);
+  }
+  if (sources) {
+    lines.push("");
+    lines.push("SOURCES TO CHECK");
+    lines.push(`Specifically check the following source(s), in addition to any other reputable ones: ${sources}`);
+  }
   lines.push("");
   lines.push("TIME RANGE");
   if (timeRangeDays === "any") {
@@ -879,12 +913,31 @@ document.getElementById("pasteLinkInput").addEventListener("keydown", (e) => {
 
 document.getElementById("castNetBtn").onclick = () => {
   const panel = document.getElementById("castNetPanel");
-  panel.style.display = panel.style.display === "none" ? "block" : "none";
+  const willOpen = panel.style.display === "none";
+  panel.style.display = willOpen ? "block" : "none";
+  if (willOpen) {
+    document.getElementById("castNetContextArea").value = searchContext;
+    document.getElementById("castNetSourcesArea").value = searchSources;
+  }
 };
+document.getElementById("castNetContextArea").addEventListener("blur", (e) => {
+  searchContext = e.target.value;
+  saveSearchContext();
+});
+document.getElementById("castNetSourcesArea").addEventListener("blur", (e) => {
+  searchSources = e.target.value;
+  saveSources();
+});
 document.getElementById("generatePromptBtn").onclick = () => {
+  const context = document.getElementById("castNetContextArea").value.trim();
+  searchContext = context;
+  saveSearchContext();
+  const sources = document.getElementById("castNetSourcesArea").value.trim();
+  searchSources = sources;
+  saveSources();
   const intent = document.getElementById("castNetIntentInput").value.trim();
   const timeRangeDays = document.getElementById("castNetTimeRange").value;
-  const prompt = buildCastNetPrompt(intent, timeRangeDays);
+  const prompt = buildCastNetPrompt(context, sources, intent, timeRangeDays);
   const area = document.getElementById("castNetPromptArea");
   area.value = prompt;
   area.style.display = "block";
@@ -923,6 +976,8 @@ document.getElementById("list").addEventListener("blur", (e) => {
 
 // ---------- init ----------
 load();
+loadSearchContext();
+loadSources();
 tryImportFromUrl();
 renderAll();
 </script>
