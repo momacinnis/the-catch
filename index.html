@@ -153,7 +153,7 @@
     <textarea id="castNetPromptArea" style="display:none; min-height:240px;" readonly></textarea>
   </div>
 
-  <div class="row" id="progressRow" style="display:none; margin: 10px 0 4px;">
+  <div class="row" id="progressRow" style="margin: 10px 0 4px;">
     <button class="btn" id="exportBtn">Save progress (.json)</button>
     <button class="btn" id="restoreBtn">Restore progress</button>
     <input type="file" id="restoreInput" accept="application/json,.json" />
@@ -634,9 +634,11 @@ function cardHtml(o) {
           <div class="sub">You've seen something like this before — <strong style="color:${match.outcome === "accepted" ? "var(--green)" : match.outcome === "declined" ? "var(--sanguine)" : "var(--ink)"};">${label}</strong>${match.notes ? `: ${escapeHtml(match.notes)}` : ""}</div>
         </div>`;
     }
+    notesHtml = notesField();
     actionsHtml = `
       <div class="card-actions">
         <button class="btn primary" data-action="keep" data-id="${o.id}">Work on it</button>
+        <button class="btn" data-action="saveForLater" data-id="${o.id}">Save note & file to Learn</button>
         <button class="btn" data-action="toss" data-id="${o.id}">Throw back</button>
       </div>`;
   } else if (o.stage === "considering") {
@@ -721,7 +723,7 @@ function renderList() {
   document.getElementById("tabSubmitted").textContent = `Submitted (${buckets.submitted.length})`;
   document.getElementById("tabOutcome").textContent = `Outcome (${buckets.outcome.length})`;
   document.getElementById("tabLearn").textContent = `Learn (${buckets.learn.length})`;
-  document.getElementById("progressRow").style.display = state.opportunities.some(isActive) ? "flex" : "none";
+  document.getElementById("progressRow").style.display = "flex";
 
   const emptyMessages = {
     discovered: `No catch yet. Ask Claude to "cast the net" in a chat, then import the .json here.`,
@@ -746,6 +748,14 @@ function keep(id) {
   const item = state.opportunities.find((x) => x.id === id);
   if (!item || item.stage !== "discovered") return;
   item.stage = "considering";
+  renderAll();
+}
+function saveForLater(id) {
+  const item = state.opportunities.find((x) => x.id === id);
+  if (!item || item.stage !== "discovered") return;
+  const notesEl = document.querySelector(`textarea.notes-field[data-id="${id}"]`);
+  if (notesEl) item.notes = notesEl.value;
+  item.stage = "learn";
   renderAll();
 }
 function startPreparing(id) {
@@ -896,6 +906,7 @@ document.getElementById("list").addEventListener("click", (e) => {
   const id = btn.dataset.id;
   const action = btn.dataset.action;
   if (action === "keep") keep(id);
+  else if (action === "saveForLater") saveForLater(id);
   else if (action === "toss") toss(id);
   else if (action === "toggleDetails") toggleDetailsForm(id);
   else if (action === "saveDetails") saveDetails(id);
@@ -917,4 +928,3 @@ renderAll();
 </script>
 </body>
 </html>
-
