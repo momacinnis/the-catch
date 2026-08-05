@@ -388,7 +388,7 @@ function buildCastNetPrompt(context, sources, intent, timeRangeDays) {
   lines.push("* Europe");
   lines.push("* International opportunities appropriate for Canadian artists");
   lines.push("");
-  lines.push("Prioritize:");
+  lines.push("Cast a wide net. Do not narrow the search to only these categories — they are areas of particular interest, not a filter:");
   lines.push("");
   lines.push("* Figurative painting");
   lines.push("* Portraiture");
@@ -403,13 +403,15 @@ function buildCastNetPrompt(context, sources, intent, timeRangeDays) {
   lines.push("* Grants");
   lines.push("* Competitions");
   lines.push("");
-  lines.push("Exclude:");
+  lines.push("General open-medium and open-theme opportunities should still be included — use the recommendation and confidence fields to reflect how closely something aligns, rather than leaving it out. When in doubt, include it and let the brief explain the fit rather than silently filtering it.");
+  lines.push("");
+  lines.push("Exclude only:");
   lines.push("");
   lines.push("* Expired opportunities");
-  lines.push("* Clearly online-only exhibitions unless exceptionally relevant");
   lines.push("* AI-generated art calls");
   lines.push("* NFT/Web3 opportunities");
-  lines.push("* Student-only opportunities unless eligibility is clear");
+  lines.push("");
+  lines.push("Do not exclude online-only exhibitions or opportunities with unclear/broad eligibility (including ones that may allow students) — include them and note the tradeoff in the brief's risks or reasoning instead of omitting them.");
   lines.push("");
   lines.push(DIVIDER);
   lines.push("");
@@ -461,6 +463,8 @@ function buildCastNetPrompt(context, sources, intent, timeRangeDays) {
   lines.push("* missingMaterials");
   lines.push("* nextAction");
   lines.push("");
+  lines.push("risks, recommendedArtworks, and missingMaterials must each be a JSON array of strings (e.g. [\"item one\", \"item two\"]) — never a single string, even if there is only one item.");
+  lines.push("");
   lines.push("Recommendations must only use:");
   lines.push("");
   lines.push("* Strong alignment");
@@ -494,8 +498,8 @@ function buildCastNetPrompt(context, sources, intent, timeRangeDays) {
   lines.push("☐ Verified every deadline is still open");
   lines.push("☐ Removed duplicate opportunities");
   lines.push("☐ Used the official URL for each opportunity");
-  lines.push("☐ Prioritized physical opportunities over online-only opportunities");
-  lines.push("☐ Selected opportunities based on fit with the artist's figurative, portrait, and mythology-based practice rather than simply listing every available open call.");
+  lines.push("☐ Included online-only opportunities too, noting the format as a tradeoff rather than leaving them out");
+  lines.push("☐ Cast a wide net rather than pre-filtering by fit — included general and adjacent opportunities too, and let the recommendation/confidence fields (not omission) reflect alignment strength.");
 
   return lines.join("\n");
 }
@@ -596,24 +600,42 @@ function readJsonFile(file) {
 // Enforces the trust model in code, not just via prompt instructions: an
 // invalid recommendation/confidence value (e.g. a stray numeric score) is
 // reset to the safe "unknown" default rather than silently accepted.
+// Coerces risks/recommendedArtworks/missingMaterials into a proper string array.
+// A model sometimes returns a single string instead of an array for these fields;
+// previously that data was silently dropped to []. Now it's recovered (wrapped as
+// a one-item array) and flagged via the coerced flag so the person sees a banner
+// rather than losing content with no signal at all.
+function toStringArray(v) {
+  if (Array.isArray(v)) {
+    const filtered = v.filter((x) => typeof x === "string" && x.trim());
+    return { value: filtered, coerced: filtered.length !== v.length };
+  }
+  if (typeof v === "string" && v.trim()) return { value: [v.trim()], coerced: true };
+  if (v == null || v === "") return { value: [], coerced: false };
+  return { value: [], coerced: true };
+}
 function normalizeBrief(raw) {
   let coerced = false;
   let recommendation = raw.recommendation;
   if (!RECOMMENDATION_VALUES.includes(recommendation)) { recommendation = "Insufficient information"; coerced = true; }
   let confidence = raw.confidence;
   if (!CONFIDENCE_VALUES.includes(confidence)) { confidence = "N/A"; coerced = true; }
+  const risksResult = toStringArray(raw.risks);
+  const artworksResult = toStringArray(raw.recommendedArtworks);
+  const materialsResult = toStringArray(raw.missingMaterials);
+  if (risksResult.coerced || artworksResult.coerced || materialsResult.coerced) coerced = true;
   return {
     coerced,
     value: {
       recommendation,
       confidence,
       reasoning: typeof raw.reasoning === "string" ? raw.reasoning : "",
-      risks: Array.isArray(raw.risks) ? raw.risks.filter((r) => typeof r === "string") : [],
+      risks: risksResult.value,
       timing: typeof raw.timing === "string" ? raw.timing : "",
       effort: typeof raw.effort === "string" ? raw.effort : "",
       cost: raw.cost != null ? raw.cost : "",
-      recommendedArtworks: Array.isArray(raw.recommendedArtworks) ? raw.recommendedArtworks.filter((a) => typeof a === "string") : [],
-      missingMaterials: Array.isArray(raw.missingMaterials) ? raw.missingMaterials.filter((m) => typeof m === "string") : [],
+      recommendedArtworks: artworksResult.value,
+      missingMaterials: materialsResult.value,
       nextAction: typeof raw.nextAction === "string" ? raw.nextAction : "",
     },
   };
@@ -672,7 +694,7 @@ function importFromBase64(data, isPasted) {
     sortOpportunities();
     save();
     showBanner(`Imported ${merged.length} new opportunit${merged.length === 1 ? "y" : "ies"}${isPasted ? "" : " from the link"}.` + (merged.length < items.length ? ` (${items.length - merged.length} already had.)` : ""), false);
-    if (stats.briefIssues) showBanner(`${stats.briefIssues} imported brief${stats.briefIssues === 1 ? "" : "s"} had a recommendation or confidence value outside what's allowed — reset to a safe default rather than accepted as-is.`, true);
+    if (stats.briefIssues) showBanner(`${stats.briefIssues} imported brief${stats.briefIssues === 1 ? "" : "s"} needed automatic cleanup (a recommendation/confidence value outside what's allowed, or a risks/artworks/materials field in the wrong format) — fixed automatically rather than dropped.`, true);
     renderAll();
   } catch (e) {
     showBanner(`Couldn't read that data. (${e.message})`, true);
@@ -997,7 +1019,7 @@ async function importCatch(file) {
     state.opportunities = [...state.opportunities, ...merged];
     sortOpportunities();
     renderAll();
-    if (stats.briefIssues) showBanner(`${stats.briefIssues} imported brief${stats.briefIssues === 1 ? "" : "s"} had a recommendation or confidence value outside what's allowed — reset to a safe default rather than accepted as-is.`, true);
+    if (stats.briefIssues) showBanner(`${stats.briefIssues} imported brief${stats.briefIssues === 1 ? "" : "s"} needed automatic cleanup (a recommendation/confidence value outside what's allowed, or a risks/artworks/materials field in the wrong format) — fixed automatically rather than dropped.`, true);
   } catch (e) {
     showError(`Couldn't import that file. (${e.message})`);
   }
@@ -1015,7 +1037,7 @@ async function restoreProgress(file) {
     state.opportunities = [...state.opportunities, ...merged];
     sortOpportunities();
     renderAll();
-    if (stats.briefIssues) showBanner(`${stats.briefIssues} restored brief${stats.briefIssues === 1 ? "" : "s"} had a recommendation or confidence value outside what's allowed — reset to a safe default rather than accepted as-is.`, true);
+    if (stats.briefIssues) showBanner(`${stats.briefIssues} restored brief${stats.briefIssues === 1 ? "" : "s"} needed automatic cleanup (a recommendation/confidence value outside what's allowed, or a risks/artworks/materials field in the wrong format) — fixed automatically rather than dropped.`, true);
   } catch (e) {
     showError(`Couldn't restore that file. (${e.message})`);
   }
