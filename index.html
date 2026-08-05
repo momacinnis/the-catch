@@ -646,6 +646,7 @@ function cardHtml(o) {
       <div class="card-actions">
         ${detailsToggleBtn()}
         <button class="btn primary" data-action="startPreparing" data-id="${o.id}">Start preparing</button>
+        <button class="btn" data-action="moveBack" data-id="${o.id}">Move back</button>
         <button class="btn" data-action="toss" data-id="${o.id}">Dismiss</button>
       </div>`;
   } else if (o.stage === "preparing") {
@@ -655,6 +656,7 @@ function cardHtml(o) {
       <div class="card-actions">
         ${detailsToggleBtn()}
         <button class="btn primary" data-action="markSubmitted" data-id="${o.id}">Mark submitted</button>
+        <button class="btn" data-action="moveBack" data-id="${o.id}">Move back</button>
         <button class="btn" data-action="toss" data-id="${o.id}">Dismiss</button>
       </div>`;
   } else if (o.stage === "submitted") {
@@ -663,6 +665,7 @@ function cardHtml(o) {
       <div class="card-actions">
         <button class="btn primary" data-action="acceptOutcome" data-id="${o.id}">Accepted</button>
         <button class="btn" data-action="declineOutcome" data-id="${o.id}">Declined</button>
+        <button class="btn" data-action="moveBack" data-id="${o.id}">Move back</button>
         <button class="btn" data-action="toss" data-id="${o.id}">Dismiss</button>
       </div>`;
   } else if (o.stage === "outcome") {
@@ -671,10 +674,15 @@ function cardHtml(o) {
     actionsHtml = `
       <div class="card-actions">
         <button class="btn primary" data-action="moveToLearn" data-id="${o.id}">Move to Learn</button>
+        <button class="btn" data-action="moveBack" data-id="${o.id}">Move back</button>
       </div>`;
   } else if (o.stage === "learn") {
     outcomeBadge = o.outcome ? ` · <span class="rec-badge" style="color:${o.outcome === "accepted" ? "var(--green)" : "var(--sanguine)"};">${o.outcome === "accepted" ? "Accepted" : "Declined"}</span>` : "";
     notesHtml = notesField();
+    actionsHtml = `
+      <div class="card-actions">
+        <button class="btn" data-action="moveBack" data-id="${o.id}">Move back</button>
+      </div>`;
   }
 
   return `
@@ -763,6 +771,15 @@ function moveToLearn(id) {
   const item = state.opportunities.find((x) => x.id === id);
   if (!item || item.stage !== "outcome") return;
   item.stage = "learn";
+  renderAll();
+}
+function moveBack(id) {
+  const item = state.opportunities.find((x) => x.id === id);
+  if (!item) return;
+  const idx = STAGES.indexOf(item.stage);
+  if (idx <= 0) return;
+  if (item.stage === "outcome") delete item.outcome;
+  item.stage = STAGES[idx - 1];
   renderAll();
 }
 function toss(id) {
@@ -887,6 +904,7 @@ document.getElementById("list").addEventListener("click", (e) => {
   else if (action === "acceptOutcome") setOutcome(id, "accepted");
   else if (action === "declineOutcome") setOutcome(id, "declined");
   else if (action === "moveToLearn") moveToLearn(id);
+  else if (action === "moveBack") moveBack(id);
 });
 document.getElementById("list").addEventListener("blur", (e) => {
   if (e.target.dataset && e.target.dataset.action === "notes") saveNotes(e.target.dataset.id, e.target.value);
@@ -899,3 +917,4 @@ renderAll();
 </script>
 </body>
 </html>
+
