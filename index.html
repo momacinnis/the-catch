@@ -80,6 +80,18 @@
     border: 1px solid var(--line); border-radius: 2px; color: var(--ink);
   }
 
+  .brief-box { background: var(--paperDeep); border-radius: 3px; padding: 10px 14px; margin-top: 4px; font-size: 14px; }
+  .brief-box .sub { color: var(--faded); font-size: 13.5px; margin-top: 4px; }
+  .brief-box .verify { font-size: 12px; color: var(--faded); font-style: italic; margin-top: 6px; }
+  .rec-badge { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+
+  #dossierPanel textarea, #castNetPanel textarea {
+    width: 100%; box-sizing: border-box; margin-top: 6px; padding: 8px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; background: var(--paper);
+    border: 1px solid var(--line); border-radius: 2px; color: var(--ink); resize: vertical;
+  }
+  #searchContextArea { font-family: 'Source Serif 4', serif; font-size: 14px; min-height: 70px; }
+
   a { color: inherit; }
   ::selection { background: var(--amber); color: var(--paper); }
 </style>
@@ -113,6 +125,37 @@
       <button class="btn primary" id="pasteImportBtn">Import</button>
     </div>
     <div class="hint">Prefer a link over a file? Paste it above — this runs right in this open app, so it always lands in the data you're looking at.</div>
+    <div class="row" style="margin-top:12px;">
+      <button class="btn" id="dossierBtn">Dossier</button>
+      <button class="btn primary" id="castNetBtn">Cast the net</button>
+    </div>
+  </div>
+
+  <div id="dossierPanel" class="panel" style="display:none;">
+    <div class="label" style="margin-bottom:6px;">Your Dossier — what Cast the net shares with an AI</div>
+    <div id="dossierSummary"></div>
+    <div class="row" style="margin-top:10px;">
+      <button class="btn" id="dossierImportBtn">Import Dossier (.json)</button>
+      <input type="file" id="dossierImportInput" accept="application/json,.json" />
+      <button class="btn" id="dossierExportBtn">Export Dossier (.json)</button>
+      <button class="btn" id="dossierEditBtn">Edit as JSON</button>
+    </div>
+    <textarea id="dossierEditArea" style="display:none; min-height:220px;" spellcheck="false"></textarea>
+    <div class="row" id="dossierEditActions" style="display:none; margin-top:8px;">
+      <button class="btn primary" id="dossierSaveBtn">Save</button>
+      <button class="btn" id="dossierCancelBtn">Cancel</button>
+    </div>
+    <div class="label" style="margin-top:16px; margin-bottom:6px;">Search context — stays on this device, not part of your Dossier</div>
+    <textarea id="searchContextArea" placeholder="What matters right now — current priorities, active goals, anything you want Cast the net to weigh."></textarea>
+    <div class="hint">Saves automatically. Importing a new Dossier never changes this.</div>
+  </div>
+
+  <div id="castNetPanel" class="panel" style="display:none;">
+    <div class="label" style="margin-bottom:6px;">Cast the net</div>
+    <input type="text" id="castNetIntentInput" placeholder="Optional — what are you looking for? (e.g. portrait competitions before October)" style="width:100%; box-sizing:border-box; padding:8px; font-family:'Source Serif 4',serif; font-size:14px; background:var(--paper); border:1px solid var(--line); border-radius:2px; color:var(--ink); margin-bottom:8px;" />
+    <button class="btn primary" id="generatePromptBtn">Generate prompt</button>
+    <div class="hint" style="margin-top:8px;">This builds a prompt from your Dossier and search context. Paste it into a Claude or ChatGPT chat, then bring the results back with Import catch or the paste-link box above.</div>
+    <textarea id="castNetPromptArea" style="display:none; min-height:240px;" readonly></textarea>
   </div>
 
   <div class="row" id="progressRow" style="display:none; margin: 10px 0 4px;">
@@ -134,6 +177,11 @@ const MS_DAY = 86400000;
 const STORAGE_KEY = "the-catch-state";
 const SCHEMA_VERSION = 2;
 const STAGES = ["discovered", "considering", "preparing", "submitted", "outcome", "learn"];
+const DOSSIER_KEY = "the-catch-dossier";
+const DOSSIER_SCHEMA_VERSION = 1;
+const SEARCH_CONTEXT_KEY = "the-catch-search-context";
+const RECOMMENDATION_VALUES = ["Strong alignment", "Possible alignment", "Low alignment", "Insufficient information"];
+const CONFIDENCE_VALUES = ["High", "Medium", "Low", "N/A"];
 
 let state = { schemaVersion: SCHEMA_VERSION, opportunities: [] };
 let view = "catch";
@@ -143,6 +191,8 @@ let bannerMessages = [];
 // data we told the artist "nothing was changed" about. Only an explicit
 // Clear all data clears this — see clearAll().
 let dataLoadBlocked = false;
+let dossier = null;
+let searchContext = "";
 
 // ---------- storage ----------
 function load() {
@@ -245,6 +295,130 @@ function migrateLegacyState(parsed, rawBackupText) {
   return migrated;
 }
 
+// ---------- Dossier & search context storage ----------
+function emptyDossier() {
+  return {
+    schemaVersion: DOSSIER_SCHEMA_VERSION,
+    exportedAt: "",
+    sourceApplication: "",
+    profile: { name: "", biography: "", artistStatement: "", location: "", website: "", socialLinks: [], memberships: [], education: [] },
+    practice: { mediums: [], subjects: [], themes: [], techniques: [], currentSeries: [], completedWorks: [], worksInProgress: [] },
+    careerHistory: { exhibitions: [], juriedShows: [], awards: [], publications: [], residencies: [], collaborations: [] },
+    careerDirection: "",
+    constraints: { geography: "", travelAvailability: "", budgetNotes: "", shippingNotes: "", productionCapacity: "", timelineConstraints: "" },
+  };
+}
+function normalizeDossier(parsed) {
+  const base = emptyDossier();
+  const p = parsed && typeof parsed === "object" ? parsed : {};
+  return {
+    ...base,
+    ...p,
+    profile: { ...base.profile, ...(p.profile && typeof p.profile === "object" ? p.profile : {}) },
+    practice: { ...base.practice, ...(p.practice && typeof p.practice === "object" ? p.practice : {}) },
+    careerHistory: { ...base.careerHistory, ...(p.careerHistory && typeof p.careerHistory === "object" ? p.careerHistory : {}) },
+    constraints: { ...base.constraints, ...(p.constraints && typeof p.constraints === "object" ? p.constraints : {}) },
+    schemaVersion: DOSSIER_SCHEMA_VERSION,
+  };
+}
+function loadDossier() {
+  try {
+    const raw = localStorage.getItem(DOSSIER_KEY);
+    if (raw) dossier = normalizeDossier(JSON.parse(raw));
+  } catch (e) { console.error("Dossier load failed", e); }
+}
+function saveDossier() {
+  try { localStorage.setItem(DOSSIER_KEY, JSON.stringify(dossier)); } catch (e) { console.error("Dossier save failed", e); }
+}
+function loadSearchContext() {
+  try { searchContext = localStorage.getItem(SEARCH_CONTEXT_KEY) || ""; } catch (e) { console.error("Search context load failed", e); }
+}
+function saveSearchContext() {
+  try { localStorage.setItem(SEARCH_CONTEXT_KEY, searchContext); } catch (e) { console.error("Search context save failed", e); }
+}
+async function importDossier(file) {
+  showError("");
+  try {
+    const parsed = await readJsonFile(file);
+    if (!parsed || typeof parsed !== "object") throw new Error("That file doesn't look like a Dossier export");
+    dossier = normalizeDossier(parsed);
+    saveDossier();
+    renderDossier();
+    showBanner("Dossier imported. Your search context on this device was not changed.", false);
+  } catch (e) {
+    showError(`Couldn't import that Dossier. (${e.message})`);
+  }
+}
+function exportDossier() {
+  downloadJson(`the-catch-dossier-${new Date().toISOString().slice(0, 10)}.json`, dossier || emptyDossier());
+}
+function renderDossier() {
+  const el = document.getElementById("dossierSummary");
+  document.getElementById("searchContextArea").value = searchContext;
+  if (!dossier) {
+    el.innerHTML = `<p class="empty" style="margin:0;">No Dossier imported yet. Import one, or use "Edit as JSON" to enter details directly.</p>`;
+    return;
+  }
+  const d = dossier;
+  const rows = [];
+  if (d.profile.name) rows.push(`<div class="sub"><strong>${escapeHtml(d.profile.name)}</strong></div>`);
+  if (d.profile.location) rows.push(`<div class="sub">${escapeHtml(d.profile.location)}</div>`);
+  if (d.practice.mediums.length) rows.push(`<div class="sub">Mediums: ${d.practice.mediums.map(escapeHtml).join(", ")}</div>`);
+  if (d.practice.themes.length) rows.push(`<div class="sub">Themes: ${d.practice.themes.map(escapeHtml).join(", ")}</div>`);
+  if (d.careerDirection) rows.push(`<div class="sub">Direction: ${escapeHtml(d.careerDirection)}</div>`);
+  el.innerHTML = rows.length ? rows.join("") : `<p class="empty" style="margin:0;">Dossier imported but has no profile details yet.</p>`;
+}
+
+// ---------- Cast the net (prompt assembly — manual invocation, no API calls) ----------
+function buildCastNetPrompt(intent) {
+  const d = dossier || emptyDossier();
+  const lines = [];
+  lines.push("You are helping an artist find and evaluate real, currently-open opportunities (exhibitions, open calls, competitions, residencies, grants).");
+  lines.push("");
+  lines.push("ARTIST CONTEXT");
+  if (d.profile.name) lines.push(`Name: ${d.profile.name}`);
+  if (d.profile.biography) lines.push(`Biography: ${d.profile.biography}`);
+  if (d.profile.artistStatement) lines.push(`Artist statement: ${d.profile.artistStatement}`);
+  if (d.profile.location) lines.push(`Location: ${d.profile.location}`);
+  if (d.practice.mediums.length) lines.push(`Mediums: ${d.practice.mediums.join(", ")}`);
+  if (d.practice.subjects.length) lines.push(`Subjects: ${d.practice.subjects.join(", ")}`);
+  if (d.practice.themes.length) lines.push(`Themes: ${d.practice.themes.join(", ")}`);
+  if (d.practice.currentSeries.length) lines.push(`Current series: ${d.practice.currentSeries.join(", ")}`);
+  if (d.careerDirection) lines.push(`Career direction: ${d.careerDirection}`);
+  if (d.constraints.geography) lines.push(`Geography: ${d.constraints.geography}`);
+  if (d.constraints.travelAvailability) lines.push(`Travel availability: ${d.constraints.travelAvailability}`);
+  if (d.constraints.budgetNotes) lines.push(`Budget notes: ${d.constraints.budgetNotes}`);
+  if (d.constraints.shippingNotes) lines.push(`Shipping notes: ${d.constraints.shippingNotes}`);
+  if (d.constraints.productionCapacity) lines.push(`Production capacity: ${d.constraints.productionCapacity}`);
+  if (d.constraints.timelineConstraints) lines.push(`Timeline constraints: ${d.constraints.timelineConstraints}`);
+  if (searchContext) lines.push(`Current priorities / search context: ${searchContext}`);
+  if (intent) { lines.push(""); lines.push(`SEARCH INTENT: ${intent}`); }
+  lines.push("");
+  lines.push("TASK");
+  lines.push("Return a JSON array. Each item must have exactly these fields:");
+  lines.push("- title (string)");
+  lines.push("- venue (string) — the organization or venue name");
+  lines.push("- kind (string) — the opportunity type, e.g. \"exhibition\", \"residency\", \"competition\"");
+  lines.push("- deadline (string, YYYY-MM-DD)");
+  lines.push("- fee (string, free text — write \"n/a\" if none)");
+  lines.push("- url (string)");
+  lines.push("- why (string) — a one-line description of the opportunity itself");
+  lines.push("- brief (object) with exactly these fields:");
+  lines.push("  - recommendation: one of \"Strong alignment\", \"Possible alignment\", \"Low alignment\", \"Insufficient information\" — never a number or percentage");
+  lines.push("  - confidence: one of \"High\", \"Medium\", \"Low\", \"N/A\" — always include this field");
+  lines.push("  - reasoning (string) — practice/medium/geographic/artwork/strategic alignment, explained in plain language");
+  lines.push("  - risks (array of strings)");
+  lines.push("  - timing (string)");
+  lines.push("  - effort (string)");
+  lines.push("  - cost (string, one line summarizing fees/materials/shipping/travel)");
+  lines.push("  - recommendedArtworks (array of strings — only if the artist's context above includes relevant series/artwork info)");
+  lines.push("  - missingMaterials (array of strings)");
+  lines.push("  - nextAction (string) — a practical next step");
+  lines.push("");
+  lines.push("Do not include any numeric score, percentage, or star rating anywhere in the brief. The brief informs the artist's decision — it does not make the decision for them.");
+  return lines.join("\n");
+}
+
 // ---------- helpers ----------
 function daysUntil(dateStr) {
   const d = new Date(dateStr + "T12:00:00");
@@ -283,10 +457,50 @@ function readJsonFile(file) {
     reader.readAsText(file);
   });
 }
-function normalizeItems(parsed) {
+// Enforces the trust model in code, not just via prompt instructions: an
+// invalid recommendation/confidence value (e.g. a stray numeric score) is
+// reset to the safe "unknown" default rather than silently accepted.
+function normalizeBrief(raw) {
+  let coerced = false;
+  let recommendation = raw.recommendation;
+  if (!RECOMMENDATION_VALUES.includes(recommendation)) { recommendation = "Insufficient information"; coerced = true; }
+  let confidence = raw.confidence;
+  if (!CONFIDENCE_VALUES.includes(confidence)) { confidence = "N/A"; coerced = true; }
+  return {
+    coerced,
+    value: {
+      recommendation,
+      confidence,
+      reasoning: typeof raw.reasoning === "string" ? raw.reasoning : "",
+      risks: Array.isArray(raw.risks) ? raw.risks.filter((r) => typeof r === "string") : [],
+      timing: typeof raw.timing === "string" ? raw.timing : "",
+      effort: typeof raw.effort === "string" ? raw.effort : "",
+      cost: raw.cost != null ? raw.cost : "",
+      recommendedArtworks: Array.isArray(raw.recommendedArtworks) ? raw.recommendedArtworks.filter((a) => typeof a === "string") : [],
+      missingMaterials: Array.isArray(raw.missingMaterials) ? raw.missingMaterials.filter((m) => typeof m === "string") : [],
+      nextAction: typeof raw.nextAction === "string" ? raw.nextAction : "",
+    },
+  };
+}
+function normalizeItems(parsed, stats) {
+  stats = stats || {};
   let arr = Array.isArray(parsed) ? parsed : (parsed && (parsed.items || parsed.catch || parsed.kept)) || null;
   if (!Array.isArray(arr)) throw new Error("No opportunity list found in that file");
-  return arr.filter((o) => o && o.title && o.deadline).map((o, i) => ({ ...o, id: o.id || (Date.now() + "-" + i) }));
+  return arr.filter((o) => o && o.title && o.deadline).map((o, i) => {
+    // Accept the Opportunity Brief spec's field names (organization/opportunityType/
+    // description) as aliases for this app's existing field names, so Brief-aware
+    // imports and today's plain imports both work without any UI-visible change.
+    const venue = typeof o.venue === "string" ? o.venue : (typeof o.organization === "string" ? o.organization : "");
+    const kind = typeof o.kind === "string" ? o.kind : (typeof o.opportunityType === "string" ? o.opportunityType : (typeof o.type === "string" ? o.type : ""));
+    const why = typeof o.why === "string" ? o.why : (typeof o.description === "string" ? o.description : "");
+    let brief = null;
+    if (o.brief && typeof o.brief === "object") {
+      const result = normalizeBrief(o.brief);
+      brief = result.value;
+      if (result.coerced) stats.briefIssues = (stats.briefIssues || 0) + 1;
+    }
+    return { ...o, venue, kind, why, brief, id: o.id || (Date.now() + "-" + i) };
+  });
 }
 function isActive(o) { return o.stage !== "discovered"; }
 function sortOpportunities() { state.opportunities.sort((a, b) => a.deadline.localeCompare(b.deadline)); }
@@ -314,13 +528,15 @@ function tryImportFromUrl() {
 function importFromBase64(data, isPasted) {
   try {
     const parsed = JSON.parse(b64urlDecode(data));
-    const items = normalizeItems(parsed).filter((o) => daysUntil(o.deadline) > 0);
+    const stats = {};
+    const items = normalizeItems(parsed, stats).filter((o) => daysUntil(o.deadline) > 0);
     const existing = existingKeySet();
     const merged = items.filter((o) => !existing.has(o.title + o.venue)).map((o) => ({ ...o, stage: "discovered" }));
     state.opportunities = [...state.opportunities, ...merged];
     sortOpportunities();
     save();
     showBanner(`Imported ${merged.length} new opportunit${merged.length === 1 ? "y" : "ies"}${isPasted ? "" : " from the link"}.` + (merged.length < items.length ? ` (${items.length - merged.length} already had.)` : ""), false);
+    if (stats.briefIssues) showBanner(`${stats.briefIssues} imported brief${stats.briefIssues === 1 ? "" : "s"} had a recommendation or confidence value outside what's allowed — reset to a safe default rather than accepted as-is.`, true);
     renderAll();
   } catch (e) {
     showBanner(`Couldn't read that data. (${e.message})`, true);
@@ -377,6 +593,32 @@ function renderTimeline() {
 }
 
 // ---------- cards ----------
+function briefHtml(o) {
+  if (!o.brief) return "";
+  const b = o.brief;
+  const recColor = b.recommendation === "Strong alignment" ? "var(--green)"
+    : b.recommendation === "Possible alignment" ? "var(--amber)"
+    : b.recommendation === "Low alignment" ? "var(--sanguine)"
+    : "var(--faded)";
+  const fallback = (v) => (v ? escapeHtml(v) : "Not evaluated");
+  const fallbackList = (arr) => (arr && arr.length ? arr.map(escapeHtml).join("; ") : "None noted");
+  const costText = b.cost ? (typeof b.cost === "string" ? escapeHtml(b.cost) : escapeHtml(JSON.stringify(b.cost))) : "Not evaluated";
+  return `
+    <div class="brief-box">
+      <div class="row" style="justify-content:space-between; align-items:baseline;">
+        <span class="rec-badge" style="color:${recColor};">${escapeHtml(b.recommendation)}</span>
+        <span class="rec-badge" style="color:var(--faded);">Confidence: ${escapeHtml(b.confidence)}</span>
+      </div>
+      <div class="sub">${fallback(b.reasoning)}</div>
+      <div class="sub"><strong>Risks:</strong> ${fallbackList(b.risks)}</div>
+      <div class="sub"><strong>Timing:</strong> ${fallback(b.timing)}</div>
+      <div class="sub"><strong>Effort:</strong> ${fallback(b.effort)}</div>
+      <div class="sub"><strong>Cost:</strong> ${costText}</div>
+      <div class="sub"><strong>Recommended artworks:</strong> ${fallbackList(b.recommendedArtworks)}</div>
+      <div class="sub"><strong>Missing materials:</strong> ${fallbackList(b.missingMaterials)}</div>
+      <div class="verify"><strong>Next action:</strong> ${fallback(b.nextAction)}</div>
+    </div>`;
+}
 function cardHtml(o, kind) {
   const days = daysUntil(o.deadline);
   const c = urgencyColor(days);
@@ -436,6 +678,7 @@ function cardHtml(o, kind) {
       <div class="card-meta">${escapeHtml(o.venue || "")} · ${escapeHtml(o.kind || "")} · fee ${escapeHtml(o.fee || "—")} · fit ${escapeHtml(o.fit ?? "—")}/10</div>
       <div class="card-why">${escapeHtml(o.why || "")}</div>
       ${viewLink}
+      ${briefHtml(o)}
       ${detailsHtml}
       ${notesHtml}
       ${actionsHtml}
@@ -500,12 +743,14 @@ async function importCatch(file) {
   showError("");
   try {
     const parsed = await readJsonFile(file);
-    const items = normalizeItems(parsed).filter((o) => daysUntil(o.deadline) > 0);
+    const stats = {};
+    const items = normalizeItems(parsed, stats).filter((o) => daysUntil(o.deadline) > 0);
     const existing = existingKeySet();
     const merged = items.filter((o) => !existing.has(o.title + o.venue)).map((o) => ({ ...o, stage: "discovered" }));
     state.opportunities = [...state.opportunities, ...merged];
     sortOpportunities();
     renderAll();
+    if (stats.briefIssues) showBanner(`${stats.briefIssues} imported brief${stats.briefIssues === 1 ? "" : "s"} had a recommendation or confidence value outside what's allowed — reset to a safe default rather than accepted as-is.`, true);
   } catch (e) {
     showError(`Couldn't import that file. (${e.message})`);
   }
@@ -514,7 +759,8 @@ async function restoreProgress(file) {
   showError("");
   try {
     const parsed = await readJsonFile(file);
-    const items = normalizeItems(parsed);
+    const stats = {};
+    const items = normalizeItems(parsed, stats);
     const existing = existingKeySet();
     const merged = items
       .filter((o) => !existing.has(o.title + o.venue))
@@ -522,6 +768,7 @@ async function restoreProgress(file) {
     state.opportunities = [...state.opportunities, ...merged];
     sortOpportunities();
     renderAll();
+    if (stats.briefIssues) showBanner(`${stats.briefIssues} restored brief${stats.briefIssues === 1 ? "" : "s"} had a recommendation or confidence value outside what's allowed — reset to a safe default rather than accepted as-is.`, true);
   } catch (e) {
     showError(`Couldn't restore that file. (${e.message})`);
   }
@@ -553,6 +800,56 @@ document.getElementById("pasteLinkInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") document.getElementById("pasteImportBtn").click();
 });
 
+document.getElementById("dossierBtn").onclick = () => {
+  const panel = document.getElementById("dossierPanel");
+  const willOpen = panel.style.display === "none";
+  panel.style.display = willOpen ? "block" : "none";
+  if (willOpen) renderDossier();
+};
+document.getElementById("castNetBtn").onclick = () => {
+  const panel = document.getElementById("castNetPanel");
+  panel.style.display = panel.style.display === "none" ? "block" : "none";
+};
+document.getElementById("dossierImportBtn").onclick = () => document.getElementById("dossierImportInput").click();
+document.getElementById("dossierImportInput").onchange = (e) => { const f = e.target.files[0]; if (f) importDossier(f); e.target.value = ""; };
+document.getElementById("dossierExportBtn").onclick = exportDossier;
+document.getElementById("dossierEditBtn").onclick = () => {
+  document.getElementById("dossierEditArea").value = JSON.stringify(dossier || emptyDossier(), null, 2);
+  document.getElementById("dossierEditArea").style.display = "block";
+  document.getElementById("dossierEditActions").style.display = "flex";
+};
+document.getElementById("dossierSaveBtn").onclick = () => {
+  showError("");
+  try {
+    const parsed = JSON.parse(document.getElementById("dossierEditArea").value);
+    dossier = normalizeDossier(parsed);
+    saveDossier();
+    renderDossier();
+    document.getElementById("dossierEditArea").style.display = "none";
+    document.getElementById("dossierEditActions").style.display = "none";
+    showBanner("Dossier updated.", false);
+  } catch (e) {
+    showError(`Couldn't save — that's not valid JSON. (${e.message})`);
+  }
+};
+document.getElementById("dossierCancelBtn").onclick = () => {
+  document.getElementById("dossierEditArea").style.display = "none";
+  document.getElementById("dossierEditActions").style.display = "none";
+};
+document.getElementById("searchContextArea").addEventListener("blur", (e) => {
+  searchContext = e.target.value;
+  saveSearchContext();
+});
+document.getElementById("generatePromptBtn").onclick = () => {
+  const intent = document.getElementById("castNetIntentInput").value.trim();
+  const prompt = buildCastNetPrompt(intent);
+  const area = document.getElementById("castNetPromptArea");
+  area.value = prompt;
+  area.style.display = "block";
+  area.focus();
+  area.setSelectionRange(0, area.value.length);
+};
+
 document.getElementById("tabCatch").onclick = () => { view = "catch"; document.getElementById("tabCatch").classList.add("active"); document.getElementById("tabWorking").classList.remove("active"); renderList(); };
 document.getElementById("tabWorking").onclick = () => { view = "working"; document.getElementById("tabWorking").classList.add("active"); document.getElementById("tabCatch").classList.remove("active"); renderList(); };
 
@@ -572,6 +869,8 @@ document.getElementById("list").addEventListener("blur", (e) => {
 
 // ---------- init ----------
 load();
+loadDossier();
+loadSearchContext();
 tryImportFromUrl();
 renderAll();
 </script>
