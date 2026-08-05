@@ -315,52 +315,188 @@ function migrateLegacyState(parsed, rawBackupText) {
 
 // ---------- Cast the net (prompt assembly — manual invocation, no API calls) ----------
 function buildCastNetPrompt(context, sources, intent, timeRangeDays) {
+  const DIVIDER = "⸻";
   const lines = [];
-  lines.push("You are helping an artist find and evaluate real, currently-open opportunities (exhibitions, open calls, competitions, residencies, grants).");
-  if (context) {
-    lines.push("");
-    lines.push("ARTIST CONTEXT");
-    lines.push(context);
-  }
-  if (sources) {
-    lines.push("");
-    lines.push("SOURCES TO CHECK");
-    lines.push(`Specifically check the following source(s), in addition to any other reputable ones: ${sources}`);
-  }
+
+  // dedupe user-entered sources against the always-mandatory akimbo.ca
+  const extraSources = (sources || "")
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter((s) => s && s.toLowerCase() !== "akimbo.ca");
+
+  lines.push("Artist Opportunity Search Prompt");
+  lines.push("");
+  lines.push("You are helping an artist find and evaluate real, currently open opportunities (exhibitions, open calls, competitions, residencies, grants).");
   lines.push("");
   lines.push("TIME RANGE");
+  lines.push("");
   if (timeRangeDays === "any") {
-    lines.push("Include opportunities with any upcoming application deadline.");
+    lines.push("Include opportunities with any upcoming application deadline. Do not include expired opportunities.");
   } else {
     const today = new Date();
     const cutoff = new Date(today.getTime() + Number(timeRangeDays) * MS_DAY);
     const fmt = (d) => d.toISOString().slice(0, 10);
-    lines.push(`Only include opportunities with application deadlines between ${fmt(today)} and ${fmt(cutoff)} (the next ${timeRangeDays} days). Skip anything outside this window.`);
+    lines.push(`Only include opportunities with application deadlines between ${fmt(today)} and ${fmt(cutoff)} (the next ${timeRangeDays} days). Do not include expired opportunities.`);
   }
-  if (intent) { lines.push(""); lines.push(`SEARCH INTENT: ${intent}`); }
   lines.push("");
-  lines.push("TASK");
-  lines.push("Return a JSON array. Each item must have exactly these fields:");
-  lines.push("- title (string)");
-  lines.push("- venue (string) — the organization or venue name");
-  lines.push("- kind (string) — the opportunity type, e.g. \"exhibition\", \"residency\", \"competition\"");
-  lines.push("- deadline (string, YYYY-MM-DD)");
-  lines.push("- fee (string, free text — write \"n/a\" if none)");
-  lines.push("- url (string)");
-  lines.push("- why (string) — a one-line description of the opportunity itself");
-  lines.push("- brief (object) with exactly these fields:");
-  lines.push("  - recommendation: one of \"Strong alignment\", \"Possible alignment\", \"Low alignment\", \"Insufficient information\" — never a number or percentage");
-  lines.push("  - confidence: one of \"High\", \"Medium\", \"Low\", \"N/A\" — always include this field");
-  lines.push("  - reasoning (string) — practice/medium/geographic/artwork/strategic alignment, explained in plain language");
-  lines.push("  - risks (array of strings)");
-  lines.push("  - timing (string)");
-  lines.push("  - effort (string)");
-  lines.push("  - cost (string, one line summarizing fees/materials/shipping/travel)");
-  lines.push("  - recommendedArtworks (array of strings — only if the artist's context above includes relevant series/artwork info)");
-  lines.push("  - missingMaterials (array of strings)");
-  lines.push("  - nextAction (string) — a practical next step");
+  lines.push(DIVIDER);
   lines.push("");
-  lines.push("Do not include any numeric score, percentage, or star rating anywhere in the brief. The brief informs the artist's decision — it does not make the decision for them.");
+  lines.push("SEARCH INTENT");
+  lines.push("");
+  lines.push(context || "No search context saved yet — add one in the Search context field above for a much more targeted search.");
+  if (intent) {
+    lines.push("");
+    lines.push(`CURRENT FOCUS: ${intent}`);
+  }
+  lines.push("");
+  lines.push(DIVIDER);
+  lines.push("");
+  lines.push("REQUIRED SOURCES");
+  lines.push("");
+  lines.push("You must perform a broad search using multiple sources.");
+  lines.push("");
+  lines.push("The following sources are mandatory:");
+  lines.push("");
+  lines.push("* akimbo.ca (REQUIRED)");
+  lines.push("* Official gallery websites");
+  lines.push("* Official museum websites");
+  lines.push("* Official residency websites");
+  lines.push("* Official competition websites");
+  lines.push("* Official granting organizations");
+  lines.push("* Artist opportunity databases");
+  lines.push("* Provincial, national and international arts organizations");
+  extraSources.forEach((s) => lines.push(`* ${s} (REQUIRED — from saved sources)`));
+  lines.push("");
+  lines.push("Akimbo is a mandatory source.");
+  lines.push("");
+  lines.push("For every search you must:");
+  lines.push("");
+  lines.push("* Search the current Akimbo listings.");
+  lines.push("* Search relevant individual opportunity pages listed on Akimbo.");
+  lines.push("* Do not skip Akimbo even if similar opportunities are found elsewhere.");
+  lines.push("* Verify opportunities against the official source before including them.");
+  lines.push("");
+  lines.push(DIVIDER);
+  lines.push("");
+  lines.push("SEARCH REQUIREMENTS");
+  lines.push("");
+  lines.push("Search widely across:");
+  lines.push("");
+  lines.push("* Ontario");
+  lines.push("* Canada");
+  lines.push("* United States");
+  lines.push("* Europe");
+  lines.push("* International opportunities appropriate for Canadian artists");
+  lines.push("");
+  lines.push("Prioritize:");
+  lines.push("");
+  lines.push("* Figurative painting");
+  lines.push("* Portraiture");
+  lines.push("* Drawing");
+  lines.push("* Contemporary painting");
+  lines.push("* Narrative painting");
+  lines.push("* Mythology");
+  lines.push("* Symbolism");
+  lines.push("* Women-centered exhibitions");
+  lines.push("* Artist residencies");
+  lines.push("* Juried exhibitions");
+  lines.push("* Grants");
+  lines.push("* Competitions");
+  lines.push("");
+  lines.push("Exclude:");
+  lines.push("");
+  lines.push("* Expired opportunities");
+  lines.push("* Clearly online-only exhibitions unless exceptionally relevant");
+  lines.push("* AI-generated art calls");
+  lines.push("* NFT/Web3 opportunities");
+  lines.push("* Student-only opportunities unless eligibility is clear");
+  lines.push("");
+  lines.push(DIVIDER);
+  lines.push("");
+  lines.push("VERIFICATION");
+  lines.push("");
+  lines.push("Every opportunity must be verified using its official source.");
+  lines.push("");
+  lines.push("Do not rely solely on aggregator sites.");
+  lines.push("");
+  lines.push("Use the official website URL whenever possible.");
+  lines.push("");
+  lines.push("Verify:");
+  lines.push("");
+  lines.push("* Deadline");
+  lines.push("* Eligibility");
+  lines.push("* Application fee");
+  lines.push("* Opportunity type");
+  lines.push("* Physical exhibition or residency location");
+  lines.push("* Current status (still accepting applications)");
+  lines.push("");
+  lines.push("Remove duplicate opportunities found on multiple websites.");
+  lines.push("");
+  lines.push(DIVIDER);
+  lines.push("");
+  lines.push("OUTPUT FORMAT");
+  lines.push("");
+  lines.push("Return a JSON array.");
+  lines.push("");
+  lines.push("Each item must contain exactly these fields:");
+  lines.push("");
+  lines.push("* title (string)");
+  lines.push("* venue (string)");
+  lines.push("* kind (string)");
+  lines.push("* deadline (YYYY-MM-DD)");
+  lines.push("* fee (string)");
+  lines.push("* url (string)");
+  lines.push("* why (string)");
+  lines.push("");
+  lines.push("brief:");
+  lines.push("");
+  lines.push("* recommendation");
+  lines.push("* confidence");
+  lines.push("* reasoning");
+  lines.push("* risks");
+  lines.push("* timing");
+  lines.push("* effort");
+  lines.push("* cost");
+  lines.push("* recommendedArtworks");
+  lines.push("* missingMaterials");
+  lines.push("* nextAction");
+  lines.push("");
+  lines.push("Recommendations must only use:");
+  lines.push("");
+  lines.push("* Strong alignment");
+  lines.push("* Possible alignment");
+  lines.push("* Low alignment");
+  lines.push("* Insufficient information");
+  lines.push("");
+  lines.push("Confidence must only use:");
+  lines.push("");
+  lines.push("* High");
+  lines.push("* Medium");
+  lines.push("* Low");
+  lines.push("* N/A");
+  lines.push("");
+  lines.push("Never include numeric scores, percentages, stars, rankings, or rating systems.");
+  lines.push("");
+  lines.push(DIVIDER);
+  lines.push("");
+  lines.push("MANDATORY CHECKLIST");
+  lines.push("");
+  lines.push("Before producing the final output, confirm internally that all of the following have been completed:");
+  lines.push("");
+  lines.push("☐ Searched akimbo.ca");
+  lines.push("☐ Searched official gallery websites");
+  lines.push("☐ Searched official museum websites");
+  lines.push("☐ Searched residency opportunities");
+  lines.push("☐ Searched competitions");
+  lines.push("☐ Searched grants");
+  lines.push("☐ Searched artist opportunity databases");
+  lines.push("☐ Verified every opportunity against its official source");
+  lines.push("☐ Verified every deadline is still open");
+  lines.push("☐ Removed duplicate opportunities");
+  lines.push("☐ Used the official URL for each opportunity");
+  lines.push("☐ Prioritized physical opportunities over online-only opportunities");
+  lines.push("☐ Selected opportunities based on fit with the artist's figurative, portrait, and mythology-based practice rather than simply listing every available open call.");
+
   return lines.join("\n");
 }
 
