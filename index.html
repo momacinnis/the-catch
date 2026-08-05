@@ -139,7 +139,7 @@
   <div id="castNetPanel" class="panel" style="display:none;">
     <div class="label" style="margin-bottom:6px;">Cast the net</div>
     <div class="label" style="margin-top:4px; margin-bottom:6px; text-transform:none; letter-spacing:0; font-size:13px;">Search context — who you are, what you make, what you're looking for. Saved on this device, included every time.</div>
-    <textarea id="castNetContextArea" placeholder="e.g. Figurative painter based in Stratford, Ontario. Practice centers on portraiture, life drawing, and a mythology-themed series (Women of the Ages). Works in colored pencil, conté, oil, acrylic, mixed media. Prefers physical exhibition over online-only." style="width:100%; box-sizing:border-box; padding:9px 10px; font-family:'Source Serif 4',serif; font-size:14px; background:var(--paper); border:1px solid var(--line); border-radius:8px; color:var(--ink); margin-bottom:10px; min-height:90px;"></textarea>
+    <textarea id="castNetContextArea" placeholder="e.g. Painter based in [city, region]. Practice centers on [subjects, themes, or series]. Works in [mediums]. Note any preferences (e.g. physical exhibitions over online-only, geographic scope, career stage)." style="width:100%; box-sizing:border-box; padding:9px 10px; font-family:'Source Serif 4',serif; font-size:14px; background:var(--paper); border:1px solid var(--line); border-radius:8px; color:var(--ink); margin-bottom:10px; min-height:90px;"></textarea>
     <div class="label" style="margin-top:4px; margin-bottom:6px; text-transform:none; letter-spacing:0; font-size:13px;">Sources to check — sites Claude should specifically search, beyond general knowledge.</div>
     <textarea id="castNetSourcesArea" placeholder="e.g. akimbo.ca" style="width:100%; box-sizing:border-box; padding:9px 10px; font-family:'IBM Plex Mono',monospace; font-size:13px; background:var(--paper); border:1px solid var(--line); border-radius:8px; color:var(--ink); margin-bottom:10px; min-height:50px;"></textarea>
     <input type="text" id="castNetIntentInput" placeholder="Optional — what are you looking for right now? (e.g. portrait competitions before October)" style="width:100%; box-sizing:border-box; padding:9px 10px; font-family:'Source Serif 4',serif; font-size:14px; background:var(--paper); border:1px solid var(--line); border-radius:8px; color:var(--ink); margin-bottom:8px;" />
@@ -380,30 +380,9 @@ function buildCastNetPrompt(context, sources, intent, timeRangeDays) {
   lines.push("");
   lines.push("SEARCH REQUIREMENTS");
   lines.push("");
-  lines.push("Search widely across:");
+  lines.push("Search widely — locally, nationally, and internationally as appropriate given the artist's location, medium, and practice described in ARTIST CONTEXT above. Do not limit the search to only the most obvious thematic matches from that context.");
   lines.push("");
-  lines.push("* Ontario");
-  lines.push("* Canada");
-  lines.push("* United States");
-  lines.push("* Europe");
-  lines.push("* International opportunities appropriate for Canadian artists");
-  lines.push("");
-  lines.push("Cast a wide net. Do not narrow the search to only these categories — they are areas of particular interest, not a filter:");
-  lines.push("");
-  lines.push("* Figurative painting");
-  lines.push("* Portraiture");
-  lines.push("* Drawing");
-  lines.push("* Contemporary painting");
-  lines.push("* Narrative painting");
-  lines.push("* Mythology");
-  lines.push("* Symbolism");
-  lines.push("* Women-centered exhibitions");
-  lines.push("* Artist residencies");
-  lines.push("* Juried exhibitions");
-  lines.push("* Grants");
-  lines.push("* Competitions");
-  lines.push("");
-  lines.push("General open-medium and open-theme opportunities should still be included — use the recommendation and confidence fields to reflect how closely something aligns, rather than leaving it out. When in doubt, include it and let the brief explain the fit rather than silently filtering it.");
+  lines.push("General and adjacent opportunity types (open-medium exhibitions, juried shows, residencies, grants, competitions) should still be included, even where the thematic fit is loose — use the recommendation and confidence fields to reflect how closely something aligns, rather than leaving it out. When in doubt, include it and let the brief explain the fit rather than silently filtering it.");
   lines.push("");
   lines.push("Exclude only:");
   lines.push("");
