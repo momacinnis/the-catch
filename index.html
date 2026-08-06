@@ -133,7 +133,7 @@
       <input type="text" id="pasteLinkInput" placeholder="Paste import link here" style="flex:1; min-width:180px; padding:9px 10px; font-family:'IBM Plex Mono',monospace; font-size:12px; background:var(--paper); border:1px solid var(--line); border-radius:8px; color:var(--ink);" />
       <button class="btn primary" id="pasteImportBtn">Import</button>
     </div>
-    <div class="hint">Prefer a link over a file? Paste it above — this runs right in this open app, so it always lands in the data you're looking at.</div>
+    <div class="hint">Prefer a link over a file? Paste it above — an import link or a data: URI both work, and this runs right in this open app, so it always lands in the data you're looking at.</div>
   </div>
 
   <div id="castNetPanel" class="panel" style="display:none;">
@@ -662,27 +662,46 @@ function tryImportFromUrl() {
   if (!data) return;
   importFromBase64(data, false);
 }
+function applyImportedOpportunities(parsed, isPasted, sourceLabel) {
+  const stats = {};
+  const items = normalizeItems(parsed, stats).filter((o) => daysUntil(o.deadline) > 0);
+  const existing = existingKeySet();
+  const merged = items.filter((o) => !existing.has(o.title + o.venue)).map((o) => ({ ...o, stage: "discovered" }));
+  state.opportunities = [...state.opportunities, ...merged];
+  sortOpportunities();
+  save();
+  showBanner(`Imported ${merged.length} new opportunit${merged.length === 1 ? "y" : "ies"}${sourceLabel || ""}.` + (merged.length < items.length ? ` (${items.length - merged.length} already had.)` : ""), false);
+  if (stats.briefIssues) showBanner(`${stats.briefIssues} imported brief${stats.briefIssues === 1 ? "" : "s"} needed automatic cleanup (a recommendation/confidence value outside what's allowed, or a risks/artworks/materials field in the wrong format) — fixed automatically rather than dropped.`, true);
+  renderAll();
+}
 function importFromBase64(data, isPasted) {
   try {
     const parsed = JSON.parse(b64urlDecode(data));
-    const stats = {};
-    const items = normalizeItems(parsed, stats).filter((o) => daysUntil(o.deadline) > 0);
-    const existing = existingKeySet();
-    const merged = items.filter((o) => !existing.has(o.title + o.venue)).map((o) => ({ ...o, stage: "discovered" }));
-    state.opportunities = [...state.opportunities, ...merged];
-    sortOpportunities();
-    save();
-    showBanner(`Imported ${merged.length} new opportunit${merged.length === 1 ? "y" : "ies"}${isPasted ? "" : " from the link"}.` + (merged.length < items.length ? ` (${items.length - merged.length} already had.)` : ""), false);
-    if (stats.briefIssues) showBanner(`${stats.briefIssues} imported brief${stats.briefIssues === 1 ? "" : "s"} needed automatic cleanup (a recommendation/confidence value outside what's allowed, or a risks/artworks/materials field in the wrong format) — fixed automatically rather than dropped.`, true);
-    renderAll();
+    applyImportedOpportunities(parsed, isPasted, isPasted ? "" : " from the link");
   } catch (e) {
     showBanner(`Couldn't read that data. (${e.message})`, true);
   }
   if (!isPasted) window.history.replaceState({}, "", window.location.pathname);
 }
+// Handles data: URIs, e.g. data:application/json;charset=utf-8,%5B...%5D (percent-encoded)
+// or data:application/json;base64,eyJ... (base64-encoded).
+function importFromDataUri(uri) {
+  try {
+    const commaIdx = uri.indexOf(",");
+    if (commaIdx === -1) throw new Error("Malformed data URI — no comma separating header from payload");
+    const meta = uri.slice(0, commaIdx);
+    const payload = uri.slice(commaIdx + 1);
+    const jsonStr = /;base64/i.test(meta) ? decodeURIComponent(escape(atob(payload.replace(/\s/g, "")))) : decodeURIComponent(payload);
+    const parsed = JSON.parse(jsonStr);
+    applyImportedOpportunities(parsed, true, "");
+  } catch (e) {
+    showBanner(`Couldn't read that data URI. (${e.message})`, true);
+  }
+}
 function importFromPastedLink(raw) {
   const text = raw.trim();
   if (!text) return;
+  if (/^data:/i.test(text)) { importFromDataUri(text); return; }
   let payload = text;
   const qIndex = text.indexOf("import=");
   if (qIndex !== -1) payload = text.slice(qIndex + "import=".length).split("&")[0];
